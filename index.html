@@ -485,6 +485,7 @@ a{color:var(--green);text-decoration:none}
         <div class="flex flex-col gap-2">
           <button class="btn btn-secondary btn-block" onclick="exportWorkouts()">Export Workouts (CSV)</button>
           <button class="btn btn-secondary btn-block" onclick="exportMeasurements()">Export Measurements (CSV)</button>
+          <button class="btn btn-block" style="background:#30d158;color:#000;font-weight:600" onclick="exportForAppleHealth()">Export for Apple Health (JSON)</button>
           <label class="btn btn-secondary btn-block" style="cursor:pointer">
             Import Workouts (CSV)
             <input type="file" accept=".csv" onchange="importWorkouts(event)" style="display:none">
@@ -2371,6 +2372,47 @@ function exportWorkouts() {
   });
   downloadCSV(csv, 'workouts.csv');
   showToast('Workouts exported');
+}
+
+function exportForAppleHealth() {
+  if (state.workouts.length === 0) { showToast('No workouts to export', 'error'); return; }
+  const workouts = state.workouts.map(w => {
+    const completedSets = w.exercises.reduce((s,e) => s + e.sets.filter(s2=>s2.completed).length, 0);
+    const totalVolume = w.exercises.reduce((s,e) => s + e.sets.reduce((ss,s2) => ss + (s2.completed?(s2.actualReps||0)*(s2.actualWeight||0):0), 0), 0);
+    const start = w.date || new Date().toISOString();
+    const durationSec = w.duration ? Math.floor(w.duration / 1000) : completedSets * 90;
+    const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
+    // Estimate calories: ~0.06 kcal per lb of volume for strength training
+    const caloriesBurned = Math.round(totalVolume * 0.06);
+    const muscles = [...new Set(w.exercises.map(e => e.muscle))];
+    return {
+      name: w.name || 'Workout',
+      startDate: start,
+      endDate: end,
+      durationSeconds: durationSec,
+      caloriesBurned: caloriesBurned,
+      exercises: w.exercises.map(e => ({
+        name: e.name,
+        muscle: e.muscle,
+        sets: e.sets.filter(s => s.completed).map(s => ({
+          reps: s.actualReps || s.reps || 0,
+          weight: s.actualWeight || s.weight || 0,
+          type: s.type || 'working'
+        }))
+      })),
+      completedSets: completedSets,
+      totalVolume: totalVolume,
+      muscles: muscles
+    };
+  });
+  const json = JSON.stringify({ version: 1, exportDate: new Date().toISOString(), workouts }, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'lift-tracker-health.json';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  showToast('Exported for Apple Health — run the Shortcut next');
 }
 
 function exportMeasurements() {
