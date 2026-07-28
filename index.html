@@ -1329,7 +1329,12 @@ function openAddExerciseModal(callback, title) {
           <div class="ex-meta"><span>${e.muscle}</span><span>•</span><span>${e.equipment}</span></div>
         </div>
       </div>
-    `).join('');
+    `).join('') + `
+      <div class="exercise-item" style="border:1px dashed var(--border2);justify-content:center;color:var(--green);gap:8px" onclick="closeModal('add-exercise-modal');openCustomExerciseModal(function(){openAddExerciseModal(window._addExCallback)})">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="fw-600 text-sm">New Exercise</span>
+      </div>
+    `;
   }
 
   // Remove old listener by replacing the element
@@ -1833,7 +1838,8 @@ function deleteMeasurement(id) {
 // ============================================================
 // CUSTOM EXERCISES
 // ============================================================
-function openCustomExerciseModal() {
+function openCustomExerciseModal(onSaveCallback) {
+  window._customExCallback = onSaveCallback || null;
   document.getElementById('custom-exercise-content').innerHTML = `
     <div class="modal-title">
       <span>Add Custom Exercise</span>
@@ -1895,7 +1901,12 @@ function saveCustomExercise() {
   state.customExercises.push(exercise);
   saveState();
   closeModal('custom-exercise-modal');
-  renderExercises();
+  if (window._customExCallback) {
+    window._customExCallback(exercise);
+    window._customExCallback = null;
+  } else {
+    renderExercises();
+  }
   showToast(name + ' added to catalog');
 }
 
