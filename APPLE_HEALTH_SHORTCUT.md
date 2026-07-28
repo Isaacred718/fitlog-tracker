@@ -125,11 +125,59 @@ Add this before step 3:
 - **Find Health Samples** — Type: **Workout** → set variable `Workouts`
 - **Repeat with Each** workouts → get start/end dates → use those as the time window for Find Heart Samples instead of a fixed range. This pulls HR only during actual workout sessions.
 
-## Step 5: Import Heart Rate into Lift Tracker
+## Step 5: Automate It (No Manual Shortcut Running)
 
-1. Run the Pull Shortcut (Step 4) — it saves `heart-rate-data.json` to iCloud Drive
-2. Open Lift Tracker → **Settings** → **Import Heart Rate Data (JSON)**
-3. Select the `heart-rate-data.json` file from iCloud Drive
+Set up an iOS Automation so the Pull Shortcut runs automatically — you never have to open Shortcuts manually.
+
+### Option A — Time-based (Recommended)
+
+Runs every day at a set time (e.g., 9 PM) so HR data is always fresh for your next import.
+
+1. Open **Shortcuts** → tap **Automation** tab (bottom center)
+2. Tap **+** → **New Automation**
+3. Choose **Time of Day** → set to `9:00 PM` (or whenever you prefer)
+4. Tap **Next**
+5. Choose **Run Immediately** (so it runs without asking)
+6. Search for your **Pull Shortcut** (the one from Step 4) and select it
+7. Tap **Done**
+
+Now every night, HR data auto-updates in iCloud. When you open Lift Tracker the next day, the import picks up the latest data.
+
+### Option B — When you open Lift Tracker
+
+Runs the pull shortcut whenever you open the Lift Tracker app.
+
+1. Open **Shortcuts** → **Automation** tab → **+** → **New Automation**
+2. Choose **App**
+3. Select **Lift Tracker** (or the Safari page if using PWA)
+4. Choose **Opens** → tap **Next**
+5. Choose **Run Immediately**
+6. Select your **Pull Shortcut**
+7. Tap **Done**
+
+**Note:** This may cause a brief delay the first time you open Lift Tracker each session while HR data pulls.
+
+### Option C — Location-based (Gym arrival)
+
+Runs when you arrive at a specific location (your gym).
+
+1. Open **Shortcuts** → **Automation** tab → **+** → **New Automation**
+2. Choose **Arrive**
+3. Enter your gym's address or search for it on the map
+4. Set radius (e.g., 100 meters) → tap **Next**
+5. Choose **Run Immediately**
+6. Select your **Pull Shortcut**
+7. Tap **Done**
+
+## Step 6: Import Heart Rate into Lift Tracker
+
+After the automation runs (or manually), import in the app:
+
+1. Open Lift Tracker → **Settings** → **Import Heart Rate Data (JSON)**
+2. The file picker opens to iCloud Drive → `HealthImports` folder
+3. Select `heart-rate-data.json` → Done
+
+**Pro tip:** After the first import, the file picker remembers your last folder. Next time it opens directly to `HealthImports` — one tap to select.
 
 Your workouts will now show:
 - **♥ AVG / MAX / MIN BPM** in workout detail
