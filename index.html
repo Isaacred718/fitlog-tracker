@@ -242,6 +242,15 @@ a{color:var(--green);text-decoration:none}
 .video-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:0.85rem;cursor:pointer;transition:all 0.15s;text-decoration:none}
 .video-btn:hover{background:var(--surface3);color:var(--red);border-color:var(--red)}
 
+/* Superset */
+.superset-bar{width:4px;border-radius:2px;position:absolute;left:0;top:0;bottom:0}
+.superset-card{position:relative;padding-left:10px !important}
+.superset-label{font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.superset-label .sl-dot{width:8px;height:8px;border-radius:50%}
+.superset-link-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:0.7rem;font-weight:600;border:1px dashed var(--border2);background:none;color:var(--text3);cursor:pointer;transition:all .15s}
+.superset-link-btn:hover{border-color:var(--green);color:var(--green)}
+.superset-link-btn.active{border-style:solid;color:var(--purple);background:rgba(168,124,242,0.08)}
+
 /* Calendar */
 .calendar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
 .cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
@@ -493,7 +502,17 @@ a{color:var(--green);text-decoration:none}
 
   <!-- Add Exercise to Workout Modal -->
   <div class="modal-overlay" id="add-exercise-modal">
-    <div class="modal" id="add-exercise-content"></div>
+    <div class="modal" id="add-exercise-content">
+      <div class="modal-title">
+        <span id="add-ex-title">Add Exercise</span>
+        <button class="icon-btn" onclick="closeModal('add-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="add-ex-search-input" placeholder="Search exercises...">
+      </div>
+      <div id="add-ex-results" style="max-height:50vh;overflow-y:auto"></div>
+    </div>
   </div>
 
   <!-- Wizard Modal -->
@@ -1148,34 +1167,100 @@ function renderTemplateEditor() {
 
 function renderTemplateExercises() {
   const t = editingTemplate;
-  document.getElementById('template-exercises-editor').innerHTML = t.exercises.map((ex, i) => `
-    <div class="card" style="border-color:var(--border)">
-      <div class="flex justify-between items-center mb-2">
-        <div class="fw-600 text-sm">${ex.name}</div>
-        <div class="flex gap-2">
-          <button class="icon-btn" onclick="moveTemplateExercise(${i},-1)" ${i===0?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg></button>
-          <button class="icon-btn" onclick="moveTemplateExercise(${i},1)" ${i===t.exercises.length-1?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
-          <button class="icon-btn" style="color:var(--red)" onclick="removeTemplateExercise(${i})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  const SUPERSET_COLORS = ['var(--purple)','var(--blue)','var(--orange)','var(--red)','#5cf2d4','#f2c85c'];
+  // Build superset group map
+  const groupColors = {};
+  let colorIdx = 0;
+  t.exercises.forEach(ex => {
+    const g = ex.supersetGroup;
+    if (g != null && !(g in groupColors)) {
+      groupColors[g] = SUPERSET_COLORS[colorIdx % SUPERSET_COLORS.length];
+      colorIdx++;
+    }
+  });
+
+  document.getElementById('template-exercises-editor').innerHTML = t.exercises.map((ex, i) => {
+    const g = ex.supersetGroup;
+    const barColor = g != null ? groupColors[g] : null;
+    const supersetLabel = (g != null && (i === 0 || t.exercises[i-1].supersetGroup !== g))
+      ? `<div class="superset-label" style="color:${barColor}"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+      : '';
+    const barHtml = barColor ? `<div class="superset-bar" style="background:${barColor}"></div>` : '';
+    // Link button: only show for exercises adjacent to another exercise
+    const canLinkPrev = i > 0;
+    const canLinkNext = i < t.exercises.length - 1;
+    const isLinked = g != null;
+
+    return `
+      ${supersetLabel}
+      <div class="card superset-card" style="border-color:${barColor || 'var(--border)'}">
+        ${barHtml}
+        <div class="flex justify-between items-center mb-2">
+          <div class="fw-600 text-sm">${ex.name}</div>
+          <div class="flex gap-2">
+            <button class="superset-link-btn ${isLinked?'active':''}" onclick="toggleSuperset(${i})" title="Link/Unlink Superset">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              ${isLinked ? 'Unlink' : 'Superset'}
+            </button>
+            <button class="icon-btn" onclick="moveTemplateExercise(${i},-1)" ${i===0?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg></button>
+            <button class="icon-btn" onclick="moveTemplateExercise(${i},1)" ${i===t.exercises.length-1?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+            <button class="icon-btn" style="color:var(--red)" onclick="removeTemplateExercise(${i})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+        </div>
+        <div class="set-headers"><span>#</span><span>Reps</span><span>Weight</span><span>Rest</span><span style="text-align:right">Type</span></div>
+        ${ex.sets.map((s, si) => `
+          <div class="set-row">
+            <div class="set-num">${si+1}</div>
+            <input class="set-input" type="number" value="${s.reps||''}" placeholder="Reps" oninput="editingTemplate.exercises[${i}].sets[${si}].reps=parseInt(this.value)||0">
+            <input class="set-input" type="number" value="${s.weight||''}" placeholder="lbs" oninput="editingTemplate.exercises[${i}].sets[${si}].weight=parseFloat(this.value)||0">
+            <input class="set-input" type="number" value="${s.rest||''}" placeholder="s" oninput="editingTemplate.exercises[${i}].sets[${si}].rest=parseInt(this.value)||0">
+            <select class="form-select" style="padding:6px 24px 6px 6px;font-size:0.7rem;width:auto;min-width:70px" onchange="editingTemplate.exercises[${i}].sets[${si}].type=this.value">
+              ${SET_TYPES.map(st => `<option value="${st.id}" ${s.type===st.id?'selected':''}>${st.name}</option>`).join('')}
+            </select>
+          </div>
+        `).join('')}
+        <div class="flex gap-2 mt-2">
+          <button class="btn btn-ghost btn-sm" onclick="addSetToTemplateExercise(${i})">+ Add Set</button>
+          <button class="btn btn-ghost btn-sm" onclick="removeSetFromTemplateExercise(${i})">- Remove Set</button>
         </div>
       </div>
-      <div class="set-headers"><span>#</span><span>Reps</span><span>Weight</span><span>Rest</span><span style="text-align:right">Type</span></div>
-      ${ex.sets.map((s, si) => `
-        <div class="set-row">
-          <div class="set-num">${si+1}</div>
-          <input class="set-input" type="number" value="${s.reps||''}" placeholder="Reps" oninput="editingTemplate.exercises[${i}].sets[${si}].reps=parseInt(this.value)||0">
-          <input class="set-input" type="number" value="${s.weight||''}" placeholder="lbs" oninput="editingTemplate.exercises[${i}].sets[${si}].weight=parseFloat(this.value)||0">
-          <input class="set-input" type="number" value="${s.rest||''}" placeholder="s" oninput="editingTemplate.exercises[${i}].sets[${si}].rest=parseInt(this.value)||0">
-          <select class="form-select" style="padding:6px 24px 6px 6px;font-size:0.7rem;width:auto;min-width:70px" onchange="editingTemplate.exercises[${i}].sets[${si}].type=this.value">
-            ${SET_TYPES.map(st => `<option value="${st.id}" ${s.type===st.id?'selected':''}>${st.name}</option>`).join('')}
-          </select>
-        </div>
-      `).join('')}
-      <div class="flex gap-2 mt-2">
-        <button class="btn btn-ghost btn-sm" onclick="addSetToTemplateExercise(${i})">+ Add Set</button>
-        <button class="btn btn-ghost btn-sm" onclick="removeSetFromTemplateExercise(${i})">- Remove Set</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+function toggleSuperset(i) {
+  const t = editingTemplate;
+  const ex = t.exercises[i];
+  if (ex.supersetGroup != null) {
+    // Unlink: remove from group. If only one left in group, remove group from all
+    const g = ex.supersetGroup;
+    ex.supersetGroup = null;
+    const remaining = t.exercises.filter(e => e.supersetGroup === g);
+    if (remaining.length <= 1) {
+      remaining.forEach(e => e.supersetGroup = null);
+    }
+  } else {
+    // Link with the previous exercise (or start a new group)
+    const prev = i > 0 ? t.exercises[i - 1] : null;
+    if (prev && prev.supersetGroup != null) {
+      ex.supersetGroup = prev.supersetGroup;
+    } else if (prev) {
+      // Create new group using the next available group id
+      const maxGroup = t.exercises.reduce((max, e) => Math.max(max, e.supersetGroup != null ? e.supersetGroup : -1), -1);
+      const newGroup = maxGroup + 1;
+      ex.supersetGroup = newGroup;
+      prev.supersetGroup = newGroup;
+    } else {
+      // First exercise, no prev — start group with next exercise if exists
+      if (i < t.exercises.length - 1) {
+        const maxGroup = t.exercises.reduce((max, e) => Math.max(max, e.supersetGroup != null ? e.supersetGroup : -1), -1);
+        const newGroup = maxGroup + 1;
+        ex.supersetGroup = newGroup;
+        t.exercises[i + 1].supersetGroup = newGroup;
+      }
+    }
+  }
+  renderTemplateExercises();
 }
 
 function addExerciseToTemplate() {
@@ -1228,37 +1313,35 @@ function saveTemplate() {
 // ============================================================
 // ADD EXERCISE MODAL
 // ============================================================
-function openAddExerciseModal(callback) {
-  let search = '';
-  function render() {
-    const filtered = getAllExercises().filter(e => !search || e.name.toLowerCase().includes(search));
-    document.getElementById('add-exercise-content').innerHTML = `
-      <div class="modal-title">
-        <span>Add Exercise</span>
-        <button class="icon-btn" onclick="closeModal('add-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+function openAddExerciseModal(callback, title) {
+  const searchInput = document.getElementById('add-ex-search-input');
+  const resultsDiv = document.getElementById('add-ex-results');
+  const titleEl = document.getElementById('add-ex-title');
+  titleEl.textContent = title || 'Add Exercise';
+
+  function renderList(q) {
+    const filtered = getAllExercises().filter(e => !q || e.name.toLowerCase().includes(q));
+    resultsDiv.innerHTML = filtered.map(e => `
+      <div class="exercise-item" onclick="window._addExCallback(${JSON.stringify({id:e.id,name:e.name,muscle:e.muscle}).replace(/"/g,'&quot;')});closeModal('add-exercise-modal')">
+        <div class="ex-icon" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'};font-size:1rem">${MUSCLE_EMOJIS[e.muscle]||'🏋️'}</div>
+        <div class="ex-info">
+          <div class="ex-name">${e.name}</div>
+          <div class="ex-meta"><span>${e.muscle}</span><span>•</span><span>${e.equipment}</span></div>
+        </div>
       </div>
-      <div class="search-box">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" placeholder="Search exercises..." value="${escHtml(search)}" oninput="window._addExSearch=this.value;window._addExRender()">
-      </div>
-      <div style="max-height:50vh;overflow-y:auto">
-        ${filtered.map(e => `
-          <div class="exercise-item" onclick="window._addExCallback(${JSON.stringify({id:e.id,name:e.name,muscle:e.muscle}).replace(/"/g,'&quot;')});closeModal('add-exercise-modal')">
-            <div class="ex-icon" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'};font-size:1rem">${MUSCLE_EMOJIS[e.muscle]||'🏋️'}</div>
-            <div class="ex-info">
-              <div class="ex-name">${e.name}</div>
-              <div class="ex-meta"><span>${e.muscle}</span><span>•</span><span>${e.equipment}</span></div>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
+    `).join('');
   }
-  window._addExSearch = '';
-  window._addExRender = () => { search = window._addExSearch; render(); };
+
+  // Remove old listener by replacing the element
+  const newInput = searchInput.cloneNode(true);
+  searchInput.parentNode.replaceChild(newInput, searchInput);
+  newInput.value = '';
+  newInput.addEventListener('input', () => renderList(newInput.value.toLowerCase()));
+
   window._addExCallback = callback;
-  render();
+  renderList('');
   openModal('add-exercise-modal');
+  setTimeout(() => newInput.focus(), 100);
 }
 
 // ============================================================
@@ -1439,6 +1522,7 @@ function startWorkoutFromTemplate(templateId) {
       exerciseId: e.exerciseId,
       name: e.name,
       muscle: e.muscle,
+      supersetGroup: e.supersetGroup != null ? e.supersetGroup : null,
       sets: e.sets.map(s => ({
         ...s,
         actualReps: s.reps,
@@ -1526,8 +1610,23 @@ function renderWorkout() {
   document.getElementById('workout-exercises').innerHTML = w.exercises.map((ex, ei) => {
     const setTypeMap = {};
     SET_TYPES.forEach(st => setTypeMap[st.id] = st);
+    const g = ex.supersetGroup;
+    const SUPERSET_COLORS = ['var(--purple)','var(--blue)','var(--orange)','var(--red)','#5cf2d4','#f2c85c'];
+    // Compute group color
+    let barColor = null;
+    if (g != null) {
+      const groupIds = [...new Set(w.exercises.map(e => e.supersetGroup).filter(x => x != null))].sort();
+      const groupIdx = groupIds.indexOf(g);
+      barColor = SUPERSET_COLORS[groupIdx % SUPERSET_COLORS.length];
+    }
+    const supersetLabel = (g != null && (ei === 0 || w.exercises[ei-1].supersetGroup !== g))
+      ? `<div class="superset-label" style="color:${barColor};padding:0 12px;margin-top:8px"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+      : '';
+    const barHtml = barColor ? `<div class="superset-bar" style="background:${barColor}"></div>` : '';
     return `
-    <div class="workout-ex-block">
+    ${supersetLabel}
+    <div class="workout-ex-block superset-card" style="${barColor ? 'border-color:'+barColor : ''}">
+      ${barHtml}
       <div class="workout-ex-header">
         <div>
           <div class="workout-ex-name">${ex.name}</div>
@@ -1853,8 +1952,20 @@ function viewWorkoutDetail(id) {
       <div class="stat-card"><div class="stat-value" style="font-size:1.2rem">${(v/1000).toFixed(1)}k</div><div class="stat-label">Volume</div></div>
       <div class="stat-card"><div class="stat-value">${w.exercises.reduce((s,e)=>s+e.sets.filter(s2=>s2.completed).reduce((ss,s2)=>ss+(s2.actualReps||0),0),0)}</div><div class="stat-label">Total Reps</div></div>
     </div>
-    ${w.exercises.map(e => `
-      <div class="mb-2">
+    ${w.exercises.map((e, ei) => {
+      const g = e.supersetGroup;
+      const SUPERSET_COLORS = ['var(--purple)','var(--blue)','var(--orange)','var(--red)','#5cf2d4','#f2c85c'];
+      let barColor = null;
+      if (g != null) {
+        const groupIds = [...new Set(w.exercises.map(x => x.supersetGroup).filter(x => x != null))].sort();
+        barColor = SUPERSET_COLORS[groupIds.indexOf(g) % SUPERSET_COLORS.length];
+      }
+      const supersetLabel = (g != null && (ei === 0 || w.exercises[ei-1].supersetGroup !== g))
+        ? `<div class="superset-label" style="color:${barColor};margin-top:10px"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+        : '';
+      return `
+      ${supersetLabel}
+      <div class="mb-2" style="${barColor ? 'border-left:3px solid '+barColor+';padding-left:8px;margin-left:4px' : ''}">
         <div class="fw-600 text-sm mb-2">${e.name} <span class="text-muted text-xs">${e.muscle}</span></div>
         ${e.sets.map((s, si) => `
           <div class="flex justify-between text-xs" style="padding:4px 0;border-bottom:1px solid var(--border);${s.completed?'':'opacity:0.4'}">
@@ -1864,7 +1975,7 @@ function viewWorkoutDetail(id) {
           </div>
         `).join('')}
       </div>
-    `).join('')}
+    `}).join('')}
     <button class="btn btn-danger btn-block btn-sm mt-3" onclick="deleteWorkout('${w.id}')">Delete Workout</button>
   `;
   openModal('exercise-detail-modal');
