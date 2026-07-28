@@ -1948,11 +1948,21 @@ function updateWorkoutSet(ei, si, field, val) {
 function toggleWorkoutSet(ei, si) {
   if (!state.activeWorkout) return;
   const set = state.activeWorkout.exercises[ei].sets[si];
+  const wasCompleted = set.completed;
   set.completed = !set.completed;
   saveState();
   renderWorkout();
   if (set.completed && set.rest > 0) {
     startRestTimer(set.rest);
+    const ex = state.activeWorkout.exercises[ei];
+    const isLastSet = si === ex.sets.length - 1;
+    if (isLastSet) {
+      lastSetPromptTimeout = setTimeout(() => {
+        if (timerInterval) {
+          openConfirm('Rest Timer', 'Stop the timer?', () => { skipTimer(); });
+        }
+      }, 5000);
+    }
   }
 }
 
@@ -1998,9 +2008,11 @@ function finishWorkout() {
 let timerInterval = null;
 let timerTotal = 0;
 let timerRemaining = 0;
+let lastSetPromptTimeout = null;
 const CIRCUMFERENCE = 2 * Math.PI * 100;
 
 function startRestTimer(seconds) {
+  if (lastSetPromptTimeout) { clearTimeout(lastSetPromptTimeout); lastSetPromptTimeout = null; }
   timerTotal = seconds;
   timerRemaining = seconds;
   document.getElementById('timer-overlay').classList.add('active');
@@ -2021,6 +2033,7 @@ function updateTimerDisplay() {
 function skipTimer() {
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = null;
+  if (lastSetPromptTimeout) { clearTimeout(lastSetPromptTimeout); lastSetPromptTimeout = null; }
   document.getElementById('timer-overlay').classList.remove('active');
 }
 
