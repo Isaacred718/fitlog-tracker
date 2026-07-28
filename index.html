@@ -239,6 +239,14 @@ a{color:var(--green);text-decoration:none}
 /* Custom exercise form */
 .custom-ex-form{display:grid;gap:10px}
 .custom-ex-form .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ex-autocomplete{position:relative}
+.ex-autocomplete-list{position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:0 0 var(--radius-sm) var(--radius-sm);border-top:none;z-index:10;display:none;box-shadow:0 8px 20px rgba(0,0,0,0.4)}
+.ex-autocomplete-list.open{display:block}
+.ex-autocomplete-item{padding:8px 12px;font-size:0.85rem;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
+.ex-autocomplete-item:hover,.ex-autocomplete-item.active{background:var(--surface3);color:var(--green)}
+.ex-autocomplete-item .aai-muscle{font-size:0.7rem;color:var(--text3)}
+.ex-autocomplete-item .aai-equip{font-size:0.65rem;color:var(--text3);margin-left:auto}
+.ex-autocomplete-hint{padding:6px 12px;font-size:0.7rem;color:var(--text3);border-bottom:1px solid var(--border)}
 .video-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:0.85rem;cursor:pointer;transition:all 0.15s;text-decoration:none}
 .video-btn:hover{background:var(--surface3);color:var(--red);border-color:var(--red)}
 
@@ -650,6 +658,66 @@ const SPLIT_TYPES = [
 ];
 
 const EQUIPMENT_LIST = ['Barbell','Dumbbell','Cable','Machine','Bodyweight'];
+
+// 300-exercise autocomplete database: [name, muscle, equipment]
+const EXERCISE_DB = [
+// Chest
+['Barbell Bench Press','Chest','Barbell'],['Incline Barbell Bench Press','Chest','Barbell'],['Decline Barbell Bench Press','Chest','Barbell'],['Close-Grip Bench Press','Chest','Barbell'],['Dumbbell Bench Press','Chest','Dumbbell'],['Incline Dumbbell Press','Chest','Dumbbell'],['Decline Dumbbell Press','Chest','Dumbbell'],['Dumbbell Fly','Chest','Dumbbell'],['Incline Dumbbell Fly','Chest','Dumbbell'],['Dumbbell Squeeze Press','Chest','Dumbbell'],['Cable Fly','Chest','Cable'],['Low Cable Fly','Chest','Cable'],['High Cable Fly','Chest','Cable'],['Cable Crossover','Chest','Cable'],['Pec Deck Machine','Chest','Machine'],['Machine Chest Press','Chest','Machine'],['Smith Machine Bench Press','Chest','Machine'],['Push-Up','Chest','Bodyweight'],['Diamond Push-Up','Chest','Bodyweight'],['Wide Push-Up','Chest','Bodyweight'],['Archer Push-Up','Chest','Bodyweight'],['Decline Push-Up','Chest','Bodyweight'],['Chest Dip','Chest','Bodyweight'],['Landmine Press','Chest','Barbell'],['Guillotine Press','Chest','Barbell'],['Pullover','Chest','Dumbbell'],['Plate Press','Chest','Barbell'],
+// Back
+['Barbell Row','Back','Barbell'],['Pendlay Row','Back','Barbell'],['T-Bar Row','Back','Barbell'],['Rack Pull','Back','Barbell'],['Deadlift','Back','Barbell'],['Sumo Deadlift','Back','Barbell'],['Romanian Deadlift','Back','Barbell'],['Trap Bar Deadlift','Back','Barbell'],['Dumbbell Row','Back','Dumbbell'],['Single-Arm Dumbbell Row','Back','Dumbbell'],['Cable Row','Back','Cable'],['Seated Cable Row','Back','Cable'],['Straight-Arm Pulldown','Back','Cable'],['Lat Pulldown','Back','Machine'],['Wide-Grip Lat Pulldown','Back','Machine'],['Close-Grip Lat Pulldown','Back','Machine'],['Machine Row','Back','Machine'],['Chest-Supported Row','Back','Machine'],['Pull-Up','Back','Bodyweight'],['Chin-Up','Back','Bodyweight'],['Neutral-Grip Pull-Up','Back','Bodyweight'],['Inverted Row','Back','Bodyweight'],['Meadows Row','Back','Barbell'],['Seal Row','Back','Barbell'],['Helms Row','Back','Dumbbell'],['Kroc Row','Back','Dumbbell'],
+// Shoulders
+['Overhead Press','Shoulders','Barbell'],['Push Press','Shoulders','Barbell'],['Military Press','Shoulders','Barbell'],['Behind-the-Neck Press','Shoulders','Barbell'],['Arnold Press','Shoulders','Dumbbell'],['Dumbbell Shoulder Press','Shoulders','Dumbbell'],['Lateral Raise','Shoulders','Dumbbell'],['Front Raise','Shoulders','Dumbbell'],['Rear Delt Fly','Shoulders','Dumbbell'],['Cable Lateral Raise','Shoulders','Cable'],['Cable Front Raise','Shoulders','Cable'],['Face Pull','Shoulders','Cable'],[' cable Rear Delt Fly','Shoulders','Cable'],['Upright Row','Shoulders','Barbell'],['Lu Raise','Shoulders','Dumbbell'],['Machine Shoulder Press','Shoulders','Machine'],[' lateral Raise Machine','Shoulders','Machine'],['Handstand Push-Up','Shoulders','Bodyweight'],['Pike Push-Up','Shoulders','Bodyweight'],['Bradford Press','Shoulders','Barbell'],['Bus Driver','Shoulders','Dumbbell'],
+// Biceps
+['Barbell Curl','Arms','Barbell'],['EZ-Bar Curl','Arms','Barbell'],['Preacher Curl','Arms','Barbell'],['Spider Curl','Arms','Barbell'],['Dumbbell Curl','Arms','Dumbbell'],['Incline Dumbbell Curl','Arms','Dumbbell'],['Hammer Curl','Arms','Dumbbell'],['Concentration Curl','Arms','Dumbbell'],['Cross-Body Hammer Curl','Arms','Dumbbell'],['Cable Curl','Arms','Cable'],['Cable Hammer Curl','Arms','Cable'],['Bayesian Curl','Arms','Cable'],['Machine Curl','Arms','Machine'],['Chin-Up','Arms','Bodyweight'],['Bodyweight Curl','Arms','Bodyweight'],['Zottman Curl','Arms','Dumbbell'],['Reverse Curl','Arms','Barbell'],['Wrist Curl','Arms','Barbell'],['Drag Curl','Arms','Barbell'],['Waiter Curl','Arms','Dumbbell'],['Plate Curl','Arms','Machine'],
+// Triceps
+['Tricep Pushdown','Arms','Cable'],['Overhead Tricep Extension','Arms','Cable'],['Skull Crusher','Arms','Barbell'],['Close-Grip Bench Press','Arms','Barbell'],['JM Press','Arms','Barbell'],['Dumbbell Overhead Extension','Arms','Dumbbell'],['Dumbbell Kickback','Arms','Dumbbell'],['Cable Kickback','Arms','Cable'],['Tricep Dip','Arms','Bodyweight'],['Bench Dip','Arms','Bodyweight'],['Diamond Push-Up','Arms','Bodyweight'],['Body Skull Crusher','Arms','Bodyweight'],['Machine Tricep Extension','Arms','Machine'],['Rolling Tricep Extension','Arms','Dumbbell'],[' Tate Press','Arms','Dumbbell'],['French Press','Arms','Barbell'],
+// Legs
+['Barbell Back Squat','Legs','Barbell'],['Front Squat','Legs','Barbell'],['Goblet Squat','Legs','Dumbbell'],['Overhead Squat','Legs','Barbell'],['Box Squat','Legs','Barbell'],['Pause Squat','Legs','Barbell'],['Hack Squat','Legs','Machine'],['Leg Press','Legs','Machine'],['Bulgarian Split Squat','Legs','Dumbbell'],['Walking Lunge','Legs','Dumbbell'],['Reverse Lunge','Legs','Dumbbell'],['Forward Lunge','Legs','Dumbbell'],['Step-Up','Legs','Dumbbell'],['Lateral Lunge','Legs','Bodyweight'],['Sissy Squat','Legs','Bodyweight'],['Leg Extension','Legs','Machine'],['Leg Curl','Legs','Machine'],['Romanian Deadlift','Legs','Barbell'],['Stiff-Leg Deadlift','Legs','Barbell'],['Single-Leg Romanian Deadlift','Legs','Dumbbell'],['Good Morning','Legs','Barbell'],['Hip Thrust','Legs','Barbell'],['Glute Bridge','Legs','Bodyweight'],['Cable Pull-Through','Legs','Cable'],['Sumo Squat','Legs','Dumbbell'],['Pistol Squat','Legs','Bodyweight'],['Nordic Hamstring Curl','Legs','Bodyweight'],
+// Calves
+['Standing Calf Raise','Legs','Machine'],['Seated Calf Raise','Legs','Machine'],['Single-Leg Calf Raise','Legs','Bodyweight'],['Donkey Calf Raise','Legs','Bodyweight'],['Calf Press','Legs','Machine'],['Calf Raise','Legs','Dumbbell'],['Leg Press Calf Raise','Legs','Machine'],
+// Core
+['Plank','Core','Bodyweight'],['Side Plank','Core','Bodyweight'],['Crunch','Core','Bodyweight'],['Bicycle Crunch','Core','Bodyweight'],['Reverse Crunch','Core','Bodyweight'],['Hanging Leg Raise','Core','Bodyweight'],['Hanging Knee Raise','Core','Bodyweight'],['Hanging Windshield Wiper','Core','Bodyweight'],['Captain Chair Leg Raise','Core','Machine'],['Cable Crunch','Core','Cable'],['Cable Woodchop','Core','Cable'],['Russian Twist','Core','Bodyweight'],['Ab Rollout','Core','Machine'],['Decline Sit-Up','Core','Bodyweight'],['V-Up','Core','Bodyweight'],['Dead Bug','Core','Bodyweight'],['Bird Dog','Core','Bodyweight'],['Mountain Climber','Core','Bodyweight'],['Flutter Kick','Core','Bodyweight'],['Toe Touch','Core','Bodyweight'],['Pallof Press','Core','Cable'],['Suitcase Carry','Core','Dumbbell'],['Farmer Walk','Core','Dumbbell'],['Hollow Body Hold','Core','Bodyweight'],['L-Sit','Core','Bodyweight'],['Dragon Flag','Core','Bodyweight'],['Ab Wheel Rollout','Core','Machine'],['McGill Curl-Up','Core','Bodyweight'],['Stomach Vacuum','Core','Bodyweight'],
+// Traps
+['Barbell Shrug','Traps','Barbell'],['Dumbbell Shrug','Traps','Dumbbell'],['Cable Shrug','Traps','Cable'],['Machine Shrug','Traps','Machine'],['Behind-the-Back Barbell Shrug','Traps','Barbell'],['Upright Row','Traps','Barbell'],['Farmer Walk','Traps','Dumbbell'],['Rack Pull','Traps','Barbell'],['Power Shrug','Traps','Barbell'],
+// Forearms
+['Wrist Curl','Arms','Barbell'],['Reverse Wrist Curl','Arms','Barbell'],['Wrist Roller','Arms','Dumbbell'],['Plate Pinch','Arms','Dumbbell'],['Towel Hang','Arms','Bodyweight'],['Dead Hang','Arms','Bodyweight'],['Finger Curl','Arms','Barbell'],['Wrist Circles','Arms','Bodyweight'],
+// Full Body
+['Clean','Full Body','Barbell'],['Power Clean','Full Body','Barbell'],['Hang Clean','Full Body','Barbell'],['Clean and Jerk','Full Body','Barbell'],['Snatch','Full Body','Barbell'],['Hang Snatch','Full Body','Barbell'],['Clean and Press','Full Body','Barbell'],['Thruster','Full Body','Barbell'],['Man Maker','Full Body','Dumbbell'],['Devil Press','Full Body','Dumbbell'],['Burpee','Full Body','Bodyweight'],['Bear Crawl','Full Body','Bodyweight'],['Turkish Get-Up','Full Body','Dumbbell'],['Kettlebell Swing','Full Body','Dumbbell'],['Kettlebell Snatch','Full Body','Dumbbell'],['Kettlebell Clean','Full Body','Dumbbell'],['Kettlebell Clean and Press','Full Body','Dumbbell'],['Ball Slam','Full Body','Machine'],['Sled Push','Full Body','Machine'],['Sled Pull','Full Body','Machine'],['Battle Rope','Full Body','Machine'],['Rowing Machine','Full Body','Machine'],['Assault Bike','Full Body','Machine'],['Box Jump','Full Body','Bodyweight'],['Broad Jump','Full Body','Bodyweight'],['Tuck Jump','Full Body','Bodyweight'],['Depth Jump','Full Body','Bodyweight'],['Medicine Ball Slam','Full Body','Dumbbell'],['Medicine Ball Throw','Full Body','Dumbbell'],['Wall Ball','Full Body','Dumbbell'],
+// More Chest
+['Floor Press','Chest','Barbell'],['Spoto Press','Chest','Barbell'],['Incline Cable Fly','Chest','Cable'],['Machine Fly','Chest','Machine'],['Single-Arm Dumbbell Press','Chest','Dumbbell'],['Svend Press','Chest','Dumbbell'],['Hex Press','Chest','Dumbbell'],['Press-Up','Chest','Bodyweight'],['Clap Push-Up','Chest','Bodyweight'],['Plyo Push-Up','Chest','Bodyweight'],['Ring Push-Up','Chest','Bodyweight'],['Dumbbell Pullover','Chest','Dumbbell'],['Incline Barbell Bench Press','Chest','Barbell'],
+// More Back
+['Yates Row','Back','Barbell'],['Barbell Pullover','Back','Barbell'],['Chest-Supported T-Bar Row','Back','Machine'],['Meadows Row','Back','Barbell'],['Iso-Lateral Row','Back','Machine'],['Straight Bar Row','Back','Barbell'],['Bent-Over Row','Back','Barbell'],['Resistance Band Pull-Apart','Back','Bodyweight'],['Superman','Back','Bodyweight'],['Back Extension','Back','Bodyweight'],['Reverse Fly','Back','Dumbbell'],['Cable Pullover','Back','Cable'],
+// More Shoulders
+['Cuban Press','Shoulders','Dumbbell'],['Snatch-Grip High Pull','Shoulders','Barbell'],['Clean Pull','Shoulders','Barbell'],['Lateral Raise Machine','Shoulders','Machine'],['Cable Face Pull','Shoulders','Cable'],['Reverse Pec Deck','Shoulders','Machine'],['Dumbbell Raise','Shoulders','Dumbbell'],['Z Press','Shoulders','Barbell'],['Seated Dumbbell Press','Shoulders','Dumbbell'],['Standing Military Press','Shoulders','Barbell'],['Push Jerk','Shoulders','Barbell'],['Split Jerk','Shoulders','Barbell'],
+// More Legs
+['Leg Press Calf Raise','Legs','Machine'],['Banded Squat','Legs','Bodyweight'],['Wall Sit','Legs','Bodyweight'],['Curtsy Lunge','Legs','Dumbbell'],['Skater Squat','Legs','Bodyweight'],['Cossack Squat','Legs','Bodyweight'],['Goblet Reverse Lunge','Legs','Dumbbell'],['Barbell Lunge','Legs','Barbell'],['Barbell Walking Lunge','Legs','Barbell'],['Leg Press','Legs','Machine'],['Hack Squat','Legs','Machine'],['Belt Squat','Legs','Machine'],['Split Squat','Legs','Dumbbell'],['Deficit Reverse Lunge','Legs','Dumbbell'],['Hip Extension','Legs','Machine'],['Glute Kickback','Legs','Machine'],['Fire Hydrant','Legs','Bodyweight'],['Clamshell','Legs','Bodyweight'],
+// More Core
+['Ab Crunch Machine','Core','Machine'],['Cable Rotation','Core','Cable'],['Rope Crunch','Core','Cable'],['Landmine Rotation','Core','Barbell'],['Medicine Ball Rotation','Core','Dumbbell'],['Side Bend','Core','Dumbbell'],['Side Bend','Core','Dumbbell'],['Plank with Shoulder Tap','Core','Bodyweight'],['Plank Jack','Core','Bodyweight'],['Star Plank','Core','Bodyweight'],['Super Plank','Core','Bodyweight'],['Cross-Body Mountain Climber','Core','Bodyweight'],['Jackknife','Core','Bodyweight'],['Seated Leg Tuck','Core','Machine'],['Torso Rotation','Core','Machine'],
+// Grip / Misc
+['Farmers Walk','Core','Dumbbell'],['Towel Pull-Up','Back','Bodyweight'],['Fat Grip Curl','Arms','Dumbbell'],['Wrist Roller','Arms','Dumbbell'],['Plate Pinch Hold','Arms','Dumbbell'],['Hand Gripper','Arms','Bodyweight'],
+// Bodyweight
+['Muscle-Up','Full Body','Bodyweight'],['Ring Muscle-Up','Full Body','Bodyweight'],['Dip','Arms','Bodyweight'],['Pull-Up','Back','Bodyweight'],['Chin-Up','Back','Bodyweight'],['Push-Up','Chest','Bodyweight'],['Pistol Squat','Legs','Bodyweight'],['Nordic Curl','Legs','Bodyweight'],['Dragon Flag','Core','Bodyweight'],['L-Sit','Core','Bodyweight'],['Front Lever','Back','Bodyweight'],['Back Lever','Back','Bodyweight'],['Human Flag','Full Body','Bodyweight'],['Handstand Push-Up','Shoulders','Bodyweight'],['Planche Push-Up','Chest','Bodyweight'],['Iron Cross','Full Body','Bodyweight'],
+// Machines
+['Chest Press Machine','Chest','Machine'],['Incline Chest Press Machine','Chest','Machine'],['Pec Deck','Chest','Machine'],['Lat Pulldown Machine','Back','Machine'],['Seated Row Machine','Back','Machine'],['Shoulder Press Machine','Shoulders','Machine'],['Lateral Raise Machine','Shoulders','Machine'],['Bicep Curl Machine','Arms','Machine'],['Tricep Pushdown Machine','Arms','Machine'],['Leg Curl Machine','Legs','Machine'],['Leg Extension Machine','Legs','Machine'],['Leg Press Machine','Legs','Machine'],['Hack Squat Machine','Legs','Machine'],['Calf Raise Machine','Legs','Machine'],['Ab Crunch Machine','Core','Machine'],['Torso Rotation Machine','Core','Machine'],['Back Extension Machine','Back','Machine'],['Glute Machine','Legs','Machine'],['Hip Adductor Machine','Legs','Machine'],['Hip Abductor Machine','Legs','Machine'],
+// Dumbbell specific
+['Dumbbell Bench Press','Chest','Dumbbell'],['Incline Dumbbell Bench Press','Chest','Dumbbell'],['Dumbbell Flyes','Chest','Dumbbell'],['Dumbbell Shoulder Press','Shoulders','Dumbbell'],['Dumbbell Lateral Raise','Shoulders','Dumbbell'],['Dumbbell Front Raise','Shoulders','Dumbbell'],['Dumbbell Rear Fly','Shoulders','Dumbbell'],['Dumbbell Bicep Curl','Arms','Dumbbell'],['Dumbbell Hammer Curl','Arms','Dumbbell'],['Dumbbell Preacher Curl','Arms','Dumbbell'],['Dumbbell Tricep Extension','Arms','Dumbbell'],['Dumbbell Kickback','Arms','Dumbbell'],['Dumbbell Row','Back','Dumbbell'],['Dumbbell Pullover','Back','Dumbbell'],['Dumbbell Squat','Legs','Dumbbell'],['Dumbbell Lunge','Legs','Dumbbell'],['Dumbbell Step-Up','Legs','Dumbbell'],['Dumbbell Romanian Deadlift','Legs','Dumbbell'],['Dumbbell Calf Raise','Legs','Dumbbell'],['Dumbbell Shrug','Traps','Dumbbell'],['Dumbbell Crunch','Core','Dumbbell'],['Dumbbell Side Bend','Core','Dumbbell'],['Single-Arm Farmer Walk','Core','Dumbbell'],
+// Barbell specific
+['Barbell Bench Press','Chest','Barbell'],['Barbell Incline Bench Press','Chest','Barbell'],['Barbell Close-Grip Bench Press','Chest','Barbell'],['Barbell Row','Back','Barbell'],['Barbell Deadlift','Back','Barbell'],['Barbell Shrug','Traps','Barbell'],['Barbell Curl','Arms','Barbell'],['Barbell Preacher Curl','Arms','Barbell'],['Barbell Reverse Curl','Arms','Barbell'],['Barbell Squat','Legs','Barbell'],['Barbell Front Squat','Legs','Barbell'],['Barbell Lunge','Legs','Barbell'],['Barbell Hip Thrust','Legs','Barbell'],['Barbell Romanian Deadlift','Legs','Barbell'],['Barbell Good Morning','Legs','Barbell'],['Barbell Calf Raise','Legs','Barbell'],['Barbell Skull Crusher','Arms','Barbell'],['Barbell Upright Row','Traps','Barbell'],['Barbell Overhead Press','Shoulders','Barbell'],
+// Cable specific
+['Cable Chest Fly','Chest','Cable'],['Cable Crossover Fly','Chest','Cable'],['Cable Lat Pulldown','Back','Cable'],['Cable Row','Back','Cable'],['Cable Face Pull','Shoulders','Cable'],['Cable Lateral Raise','Shoulders','Cable'],['Cable Bicep Curl','Arms','Cable'],['Cable Tricep Pushdown','Arms','Cable'],['Cable Rope Pushdown','Arms','Cable'],['Cable Hammer Curl','Arms','Cable'],['Cable Woodchop','Core','Cable'],['Cable Crunch','Core','Cable'],['Cable Pull-Through','Legs','Cable'],['Cable Hip Extension','Legs','Cable'],['Cable Kickback','Legs','Cable'],['Cable Calf Raise','Legs','Cable'],
+// Specialty
+['Zercher Squat','Legs','Barbell'],['Anderson Squat','Legs','Barbell'],['Pin Press','Chest','Barbell'],['Board Press','Chest','Barbell'],['Floor Press','Chest','Barbell'],['Bench Press Against Chains','Chest','Barbell'],['Banded Bench Press','Chest','Barbell'],['Tempo Squat','Legs','Barbell'],['Pause Bench Press','Chest','Barbell'],['1 1/4 Squat','Legs','Barbell'],['Spanish Squat','Legs','Bodyweight'],['B-Store Squat','Legs','Barbell'],['Safety Bar Squat','Legs','Barbell'],['Buffalo Bar Squat','Legs','Barbell'],['Camber Bar Squat','Legs','Barbell'],['Football Bar Bench Press','Chest','Barbell'],['Swiss Bar Bench Press','Chest','Barbell'],['Meadows Row','Back','Barbell'],['Kroc Row','Back','Dumbbell'],['Seal Row','Back','Barbell'],
+// Bands
+['Banded Pull-Apart','Back','Bodyweight'],['Banded Face Pull','Shoulders','Bodyweight'],['Banded Curl','Arms','Bodyweight'],['Banded Tricep Extension','Arms','Bodyweight'],['Banded Lateral Raise','Shoulders','Bodyweight'],['Banded Squat','Legs','Bodyweight'],['Banded Glute Bridge','Legs','Bodyweight'],['Banded Clamshell','Legs','Bodyweight'],['Banded Monster Walk','Legs','Bodyweight'],['Banded Hip Abduction','Legs','Bodyweight'],
+// Additional
+['Concentration Curl','Arms','Dumbbell'],['Incline Hammer Curl','Arms','Dumbbell'],['Preacher Hammer Curl','Arms','Dumbbell'],['Cable Concentration Curl','Arms','Cable'],['Overhead Cable Curl','Arms','Cable'],['Machine Preacher Curl','Arms','Machine'],['Seated Incline Dumbbell Curl','Arms','Dumbbell'],['Standing Dumbbell Curl','Arms','Dumbbell'],['EZ-Bar Preacher Curl','Arms','Barbell'],['Spider Dumbbell Curl','Arms','Dumbbell'],['Bayesian Cable Curl','Arms','Cable'],['Cable Preacher Curl','Arms','Cable'],['Dumbbell Reverse Curl','Arms','Dumbbell'],['Barbell Wrist Curl','Arms','Barbell'],['Dumbbell Wrist Curl','Arms','Dumbbell'],['Behind-the-Back Wrist Curl','Arms','Barbell'],['Plate Wrist Curl','Arms','Machine'],
+// Legs extra
+['V-Squat','Legs','Machine'],['Pendulum Squat','Legs','Machine'],['Single-Leg Press','Legs','Machine'],['Narrow Stance Leg Press','Legs','Machine'],['Wide Stance Leg Press','Legs','Machine'],['45 Degree Hyperextension','Back','Bodyweight'],['Glute-Ham Raise','Legs','Bodyweight'],['Reverse Hypers','Back','Machine'],['Banded Good Morning','Legs','Bodyweight'],['Jefferson Squat','Legs','Barbell'],['Zercher Deadlift','Legs','Barbell'],['Belt Squat','Legs','Machine'],['Pit Shark Squat','Legs','Machine'],['Cambered Squat','Legs','Barbell'],['Box Step-Up','Legs','Dumbbell'],['Lateral Step-Up','Legs','Dumbbell'],['Single-Leg Hip Thrust','Legs','Bodyweight'],['Frog Pump','Legs','Bodyweight'],['Sumo Deadlift','Back','Barbell'],['Deficit Deadlift','Back','Barbell'],
+// Misc extra
+['Chest-Supported Dumbbell Row','Back','Dumbbell'],['Helms Row','Back','Dumbbell'],['Machine Reverse Fly','Back','Machine'],['Cable Reverse Fly','Back','Cable'],['Band Pull-Apart','Back','Bodyweight'],['Prone Y Raise','Back','Bodyweight'],['Prone T Raise','Back','Bodyweight'],['Prone W Raise','Back','Bodyweight'],['I-Y-T Raise','Back','Dumbbell'],['Lu Raise','Shoulders','Dumbbell'],['Bus Driver','Shoulders','Dumbbell'],['Scarecrow','Shoulders','Dumbbell'],['Halos','Shoulders','Dumbbell'],['Bradford Press','Shoulders','Barbell'],[' behind the Neck Press','Shoulders','Barbell'],['Z Press','Shoulders','Barbell'],['Seated Barbell Press','Shoulders','Barbell'],['Pin Press Shoulder','Shoulders','Barbell'],['Spoto Press','Chest','Barbell'],['Tempo Bench Press','Chest','Barbell'],['Speed Bench Press','Chest','Barbell'],['Chain Bench Press','Chest','Barbell'],['Football Bar Row','Back','Barbell'],['Buffalo Bar Row','Back','Barbell'],
+// Extra machines
+['Converging Chest Press','Chest','Machine'],['Iso-Lateral Chest Press','Chest','Machine'],['Converging Shoulder Press','Shoulders','Machine'],['Iso-Lateral Shoulder Press','Shoulders','Machine'],['Lever Row','Back','Machine'],[' iso-Lateral Lat Pulldown','Back','Machine'],['Lever Shrug','Traps','Machine'],['Lever Bicep Curl','Arms','Machine'],['Lever Tricep Extension','Arms','Machine'],['Lever Leg Curl','Legs','Machine'],['Lever Leg Extension','Legs','Machine'],['Lever Calf Raise','Legs','Machine'],
+];
 
 // Combine built-in catalog with user-created custom exercises
 function getAllExercises() {
@@ -1848,7 +1916,10 @@ function openCustomExerciseModal(onSaveCallback) {
     <div class="custom-ex-form">
       <div class="form-group">
         <label class="form-label">Exercise Name *</label>
-        <input class="form-input" type="text" id="custom-ex-name" placeholder="e.g. Bulgarian Split Squat">
+        <div class="ex-autocomplete">
+          <input class="form-input" type="text" id="custom-ex-name" placeholder="Start typing to search 300+ exercises..." autocomplete="off">
+          <div class="ex-autocomplete-list" id="ex-ac-list"></div>
+        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1876,6 +1947,74 @@ function openCustomExerciseModal(onSaveCallback) {
     </div>
   `;
   openModal('custom-exercise-modal');
+  initExerciseAutocomplete();
+}
+
+let acIndex = -1;
+function initExerciseAutocomplete() {
+  const input = document.getElementById('custom-ex-name');
+  const list = document.getElementById('ex-ac-list');
+  if (!input || !list) return;
+  acIndex = -1;
+
+  function renderSuggestions(q) {
+    if (!q || q.length < 1) { list.classList.remove('open'); list.innerHTML = ''; return; }
+    const matches = EXERCISE_DB.filter(e => e[0].toLowerCase().includes(q.toLowerCase())).slice(0, 10);
+    if (matches.length === 0) { list.classList.remove('open'); list.innerHTML = ''; return; }
+    list.innerHTML = '<div class="ex-autocomplete-hint">' + matches.length + ' matches — tap to autofill</div>' +
+      matches.map((e, i) => `
+        <div class="ex-autocomplete-item" data-idx="${i}" onmousedown="selectExerciseAC(${i})">
+          <span class="fw-600">${highlightMatch(e[0], q)}</span>
+          <span class="aai-muscle">${e[1]}</span>
+          <span class="aai-equip">${e[2]}</span>
+        </div>
+      `).join('');
+    list.classList.add('open');
+    window._acMatches = matches;
+    acIndex = -1;
+  }
+
+  function highlightMatch(name, q) {
+    const idx = name.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return name;
+    return name.substring(0, idx) + '<span style="color:var(--green)">' + name.substring(idx, idx + q.length) + '</span>' + name.substring(idx + q.length);
+  }
+
+  input.oninput = () => { renderSuggestions(input.value.trim()); };
+  input.onkeydown = (e) => {
+    const items = list.querySelectorAll('.ex-autocomplete-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); acIndex = Math.min(acIndex + 1, items.length - 1); updateACActive(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); acIndex = Math.max(acIndex - 1, 0); updateACActive(items); }
+    else if (e.key === 'Enter' && acIndex >= 0) { e.preventDefault(); selectExerciseAC(acIndex); }
+    else if (e.key === 'Escape') { list.classList.remove('open'); }
+  };
+  input.onblur = () => { setTimeout(() => list.classList.remove('open'), 150); };
+  input.onfocus = () => { if (input.value.trim()) renderSuggestions(input.value.trim()); };
+
+  function updateACActive(items) {
+    items.forEach((it, i) => it.classList.toggle('active', i === acIndex));
+    if (acIndex >= 0 && items[acIndex]) items[acIndex].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function selectExerciseAC(idx) {
+  const match = window._acMatches ? window._acMatches[idx] : null;
+  if (!match) return;
+  const input = document.getElementById('custom-ex-name');
+  const muscleSelect = document.getElementById('custom-ex-muscle');
+  const equipSelect = document.getElementById('custom-ex-equipment');
+  input.value = match[0];
+  // Auto-select muscle group
+  for (let i = 0; i < muscleSelect.options.length; i++) {
+    if (muscleSelect.options[i].value === match[1]) { muscleSelect.selectedIndex = i; break; }
+  }
+  // Auto-select equipment
+  for (let i = 0; i < equipSelect.options.length; i++) {
+    if (equipSelect.options[i].value === match[2]) { equipSelect.selectedIndex = i; break; }
+  }
+  const list = document.getElementById('ex-ac-list');
+  if (list) list.classList.remove('open');
 }
 
 function saveCustomExercise() {
