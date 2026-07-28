@@ -311,6 +311,41 @@ a{color:var(--green);text-decoration:none}
   .modal-overlay{align-items:center}
 }
 
+/* Profile */
+.profile-hero{text-align:center;padding:24px 16px;background:linear-gradient(135deg,var(--surface2),var(--surface3));border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px}
+.profile-hero .ph-avatar{width:72px;height:72px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:2rem;margin:0 auto 12px;font-weight:800;color:var(--bg)}
+.profile-hero .ph-name{font-size:1.2rem;font-weight:800;color:var(--text)}
+.profile-hero .ph-goal{font-size:0.85rem;color:var(--green);margin-top:4px;font-weight:600}
+.profile-hero .ph-level{font-size:0.8rem;color:var(--text3);margin-top:2px}
+.coach-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
+.coach-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.coach-card.urgent::before{background:var(--red)}
+.coach-card.focus::before{background:var(--orange)}
+.coach-card.win::before{background:var(--green)}
+.coach-card.tip::before{background:var(--blue)}
+.coach-card .cc-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
+.coach-card.urgent .cc-badge{background:rgba(242,92,92,0.12);color:var(--red)}
+.coach-card.focus .cc-badge{background:rgba(242,169,58,0.12);color:var(--orange)}
+.coach-card.win .cc-badge{background:rgba(140,242,58,0.12);color:var(--green)}
+.coach-card.tip .cc-badge{background:rgba(92,168,242,0.12);color:var(--blue)}
+.coach-card .cc-title{font-size:0.95rem;font-weight:700;color:var(--text);margin-bottom:6px}
+.coach-card .cc-body{font-size:0.85rem;color:var(--text2);line-height:1.6}
+.coach-card .cc-action{margin-top:10px;padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.8rem;color:var(--text);font-weight:500}
+.muscle-bar-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.muscle-bar-row .mb-label{width:80px;font-size:0.8rem;color:var(--text2);font-weight:500;flex-shrink:0}
+.muscle-bar-row .mb-track{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden}
+.muscle-bar-row .mb-fill{height:100%;border-radius:4px;transition:width .5s ease}
+.muscle-bar-row .mb-value{width:36px;font-size:0.75rem;color:var(--text3);text-align:right;font-weight:600}
+.survey-step{display:none;animation:fadeIn .3s ease}
+.survey-step.active{display:block}
+.survey-options{display:grid;gap:8px}
+.survey-opt{padding:14px;background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:all .15s;text-align:left}
+.survey-opt:hover{border-color:var(--border2)}
+.survey-opt.selected{border-color:var(--green);background:rgba(140,242,58,0.06)}
+.survey-opt .so-icon{font-size:1.3rem;margin-bottom:4px}
+.survey-opt .so-title{font-size:0.9rem;font-weight:600;color:var(--text)}
+.survey-opt .so-desc{font-size:0.75rem;color:var(--text3);margin-top:2px}
+
 /* Print */
 @media print{.bottom-nav,.header,.modal-overlay,.timer-overlay{display:none!important}.main{padding-bottom:0}}
 </style>
@@ -474,6 +509,11 @@ a{color:var(--green);text-decoration:none}
         </button>
       </div>
     </div>
+
+    <!-- Profile View -->
+    <div class="view" id="view-profile">
+      <div id="profile-content"></div>
+    </div>
   </main>
 
   <!-- Bottom Nav -->
@@ -497,6 +537,10 @@ a{color:var(--green);text-decoration:none}
     <div class="nav-item" data-view="history" onclick="showView('history')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>History</span>
+    </div>
+    <div class="nav-item" data-view="profile" onclick="showView('profile')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Profile</span>
     </div>
   </nav>
 
@@ -545,6 +589,11 @@ a{color:var(--green);text-decoration:none}
         <button class="btn btn-danger btn-sm" id="confirm-ok-btn">Confirm</button>
       </div>
     </div>
+  </div>
+
+  <!-- Survey Modal -->
+  <div class="modal-overlay" id="survey-modal">
+    <div class="modal" id="survey-modal-content" style="max-height:90vh"></div>
   </div>
 
   <!-- Rest Timer Overlay -->
@@ -811,7 +860,8 @@ let state = {
   measurements: [],
   activeWorkout: null,
   customExercises: [],
-  settings: {}
+  settings: {},
+  profile: null
 };
 
 function loadState() {
@@ -868,6 +918,7 @@ function showView(name) {
   if (name === 'measurements') renderMeasurements();
   if (name === 'history') renderHistory();
   if (name === 'workout') renderWorkout();
+  if (name === 'profile') renderProfile();
 }
 
 // ============================================================
@@ -2437,6 +2488,564 @@ if (state.templates.length === 0 && state.workouts.length === 0) {
 }
 
 showView('dashboard');
+
+// ============================================================
+// PROFILE & COACHING
+// ============================================================
+
+const SURVEY_QUESTIONS = [
+  {id:'goal',title:'What\'s your #1 goal?',icon:'🎯',options:[
+    {id:'fat-loss',label:'Lose Fat',desc:'Drop body fat while keeping muscle',icon:'🔥'},
+    {id:'muscle',label:'Build Muscle',desc:'Add size and definition',icon:'💪'},
+    {id:'strength',label:'Get Stronger',desc:'Increase numbers on main lifts',icon:'🏋️'},
+    {id:'general',label:'General Fitness',desc:'Stay healthy and feel good',icon:'⚡'},
+    {id:'recomp',label:'Body Recomposition',desc:'Lose fat and build muscle simultaneously',icon:'🔄'},
+  ]},
+  {id:'experience',title:'How long have you been training consistently?',icon:'📅',options:[
+    {id:'beginner',label:'0-6 months',desc:'Just getting started',icon:'🌱'},
+    {id:'intermediate',label:'6 months - 2 years',desc:'Know the basics, building habits',icon:'📈'},
+    {id:'advanced',label:'2+ years',desc:'Experienced lifter',icon:'🏆'},
+  ]},
+  {id:'frequency',title:'How many days per week can you realistically train?',icon:'📆',options:[
+    {id:'2',label:'2 days',desc:'Minimum effective dose',icon:'2️⃣'},
+    {id:'3',label:'3 days',desc:'Solid foundation',icon:'3️⃣'},
+    {id:'4',label:'4 days',desc:'Serious commitment',icon:'4️⃣'},
+    {id:'5',label:'5+ days',desc:'All-in lifestyle',icon:'5️⃣'},
+  ]},
+  {id:'obstacle',title:'What\'s your biggest obstacle right now?',icon:'🚧',options:[
+    {id:'consistency',label:'Consistency',desc:'Can\'t stick to a routine',icon:'😤'},
+    {id:'knowledge',label:'Don\'t Know What to Do',desc:'Confused by all the info out there',icon:'🤷'},
+    {id:'motivation',label:'Motivation',desc:'Start strong, fizzle out',icon:'😞'},
+    {id:'diet',label:'Nutrition',desc:'Training hard but eating wrong',icon:'🍔'},
+    {id:'time',label:'Time',desc:'Busy schedule, limited hours',icon:'⏰'},
+    {id:'plateau',label:'Plateau',desc:'Not seeing results anymore',icon:'📊'},
+  ]},
+  {id:'body',title:'Where do you store the most fat / want to change most?',icon:'🔍',options:[
+    {id:'belly',label:'Belly',desc:'The stubborn midsection',icon:'🎯'},
+    {id:'arms',label:'Arms / Back',desc:'Upper body softness',icon:'💪'},
+    {id:'legs',label:'Thighs / Hips',desc:'Lower body focus',icon:'🦵'},
+    {id:'everywhere',label:'Evenly Distributed',desc:'Overall',icon:'🔲'},
+    {id:'none',label:'Not Sure / Skip',desc:'',icon:'⏭️'},
+  ]},
+  {id:'diet-status',title:'How\'s your nutrition right now?',icon:'🍽️',options:[
+    {id:'track',label:'I Track Everything',desc:'Macros, calories, the works',icon:'✅'},
+    {id:'healthy',label:'Eat Pretty Healthy',desc:'No tracking but decent choices',icon:'🥗'},
+    {id:'messy',label:'All Over the Place',desc:'Good days and bad days',icon:'🌗'},
+    {id:'terrible',label:'Need Serious Help',desc:'Fast food, emotional eating, etc.',icon:'🚨'},
+  ]},
+];
+
+let surveyState = { step: 0, answers: {} };
+
+function openSurvey() {
+  surveyState = { step: 0, answers: {} };
+  renderSurveyStep();
+  openModal('survey-modal');
+}
+
+function renderSurveyStep() {
+  const q = SURVEY_QUESTIONS[surveyState.step];
+  const total = SURVEY_QUESTIONS.length;
+  const progress = ((surveyState.step) / total) * 100;
+  const container = document.getElementById('survey-modal-content');
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <span style="font-size:0.8rem;color:var(--text3)">${surveyState.step + 1} of ${total}</span>
+      <button class="icon-btn" onclick="closeModal('survey-modal')" style="margin-right:-8px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:20px;overflow:hidden">
+      <div style="height:100%;width:${progress}%;background:var(--green);border-radius:2px;transition:width .3s ease"></div>
+    </div>
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:2rem;margin-bottom:8px">${q.icon}</div>
+      <h3 style="font-size:1.1rem;font-weight:700;color:var(--text)">${q.title}</h3>
+    </div>
+    <div class="survey-options">
+      ${q.options.map(o => `
+        <div class="survey-opt ${surveyState.answers[q.id]===o.id?'selected':''}" onclick="selectSurveyOption('${q.id}','${o.id}')">
+          <div class="so-title">${o.label}</div>
+          ${o.desc ? `<div class="so-desc">${o.desc}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      ${surveyState.step > 0 ? `<button class="btn btn-secondary" onclick="surveyBack()" style="flex:0 0 auto">Back</button>` : ''}
+      <button class="btn btn-primary" onclick="surveyNext()" ${surveyState.answers[q.id]?'':'disabled'} style="flex:1">
+        ${surveyState.step === total - 1 ? 'Get My Analysis' : 'Next'}
+      </button>
+    </div>
+  `;
+}
+
+function selectSurveyOption(qId, optId) {
+  surveyState.answers[qId] = optId;
+  renderSurveyStep();
+}
+
+function surveyBack() {
+  if (surveyState.step > 0) { surveyState.step--; renderSurveyStep(); }
+}
+
+function surveyNext() {
+  const q = SURVEY_QUESTIONS[surveyState.step];
+  if (!surveyState.answers[q.id]) return;
+  if (surveyState.step < SURVEY_QUESTIONS.length - 1) {
+    surveyState.step++;
+    renderSurveyStep();
+  } else {
+    // Save and render profile
+    state.profile = { ...surveyState.answers, completedAt: new Date().toISOString() };
+    saveState();
+    closeModal('survey-modal');
+    renderProfile();
+  }
+}
+
+// ============================================================
+// ANALYSIS ENGINE
+// ============================================================
+
+function computeAnalysis() {
+  const now = Date.now();
+  const DAY = 86400000;
+  const thirtyDaysAgo = now - 30 * DAY;
+  const fourteenDaysAgo = now - 14 * DAY;
+
+  // Recent workouts (last 30 days)
+  const recentWorkouts = (state.workouts || []).filter(w => {
+    const t = new Date(w.date).getTime();
+    return t >= thirtyDaysAgo;
+  });
+
+  // Workout frequency
+  const workoutsLast30 = recentWorkouts.length;
+  const workoutsLast14 = (state.workouts || []).filter(w => new Date(w.date).getTime() >= fourteenDaysAgo).length;
+  const avgPerWeek = workoutsLast30 > 0 ? (workoutsLast30 / 4.3).toFixed(1) : 0;
+
+  // Consistency: gaps between workouts
+  const sortedDates = recentWorkouts.map(w => new Date(w.date).getTime()).sort((a, b) => a - b);
+  let maxGap = 0;
+  let totalGap = 0;
+  let gapCount = 0;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const gap = (sortedDates[i] - sortedDates[i - 1]) / DAY;
+    maxGap = Math.max(maxGap, gap);
+    totalGap += gap;
+    gapCount++;
+  }
+  const avgGap = gapCount > 0 ? (totalGap / gapCount).toFixed(1) : '—';
+
+  // Muscle group analysis
+  const muscleGroupMap = {Biceps:'Arms',Triceps:'Arms',Glutes:'Legs',Cardio:'Cardio'};
+  const muscleCounts = {};
+  const muscleVolume = {};
+  let totalSets = 0;
+  let totalVolume = 0;
+
+  recentWorkouts.forEach(w => {
+    (w.exercises || []).forEach(ex => {
+      let muscle = ex.muscle || 'Other';
+      if (muscleGroupMap[muscle]) muscle = muscleGroupMap[muscle];
+      muscleCounts[muscle] = (muscleCounts[muscle] || 0) + 1;
+      const completedSets = (ex.sets || []).filter(s => s.completed);
+      muscleVolume[muscle] = (muscleVolume[muscle] || 0) + completedSets.length;
+      totalSets += completedSets.length;
+      completedSets.forEach(s => {
+        if (s.actualWeight && s.actualReps) totalVolume += s.actualWeight * s.actualReps;
+      });
+    });
+  });
+
+  // Strength progress: compare first half vs second half of recent workouts
+  let strengthTrend = 'stable';
+  if (recentWorkouts.length >= 4) {
+    const mid = Math.floor(recentWorkouts.length / 2);
+    const firstHalf = recentWorkouts.slice(0, mid);
+    const secondHalf = recentWorkouts.slice(mid);
+    const avgFirst = getAvgIntensity(firstHalf);
+    const avgSecond = getAvgIntensity(secondHalf);
+    if (avgSecond > avgFirst * 1.05) strengthTrend = 'improving';
+    else if (avgSecond < avgFirst * 0.95) strengthTrend = 'declining';
+  }
+
+  // Measurement trends
+  const meas = (state.measurements || []).slice(-2);
+  let weightTrend = null, bodyFatTrend = null;
+  if (meas.length === 2) {
+    const w0 = meas[0].weight, w1 = meas[1].weight;
+    if (w0 && w1) weightTrend = { from: w0, to: w1, diff: (w1 - w0).toFixed(1) };
+    const bf0 = meas[0].bodyFat, bf1 = meas[1].bodyFat;
+    if (bf0 && bf1) bodyFatTrend = { from: bf0, to: bf1, diff: (bf1 - bf0).toFixed(1) };
+  }
+
+  // Find weakest muscle groups (fewest exercises trained)
+  const allMuscles = ['Chest','Back','Shoulders','Arms','Legs','Core','Cardio'];
+  const muscleScores = allMuscles.map(m => ({
+    name: m,
+    count: muscleCounts[m] || 0,
+    sets: muscleVolume[m] || 0,
+    pct: totalSets > 0 ? Math.round(((muscleVolume[m] || 0) / totalSets) * 100) : 0
+  }));
+
+  const sorted = [...muscleScores].sort((a, b) => b.sets - a.sets);
+  const strengths = sorted.filter(m => m.sets > 0).slice(0, 3);
+  const weaknesses = sorted.filter(m => m.sets > 0).reverse().slice(0, 3);
+
+  // Workout types (which exercises appear most)
+  const exerciseFreq = {};
+  recentWorkouts.forEach(w => {
+    (w.exercises || []).forEach(ex => {
+      exerciseFreq[ex.name] = (exerciseFreq[ex.name] || 0) + 1;
+    });
+  });
+  const topExercises = Object.entries(exerciseFreq).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  return {
+    workoutsLast30, workoutsLast14, avgPerWeek, avgGap, maxGap: maxGap.toFixed(0),
+    muscleScores: sorted, strengths, weaknesses, totalSets, totalVolume,
+    strengthTrend, weightTrend, bodyFatTrend, topExercises,
+    totalWorkoutsAllTime: (state.workouts || []).length,
+    hasData: recentWorkouts.length > 0
+  };
+}
+
+function getAvgIntensity(workouts) {
+  let total = 0, count = 0;
+  workouts.forEach(w => {
+    (w.exercises || []).forEach(ex => {
+      (ex.sets || []).forEach(s => {
+        if (s.completed && s.actualWeight > 0) { total += s.actualWeight; count++; }
+      });
+    });
+  });
+  return count > 0 ? total / count : 0;
+}
+
+// ============================================================
+// COACHING ADVICE ENGINE (Jillian Michaels Style)
+// ============================================================
+
+function generateAdvice(profile, analysis) {
+  const advice = [];
+  const goal = profile.goal;
+  const freq = parseInt(profile.frequency) || 3;
+  const experience = profile.experience;
+  const obstacle = profile.obstacle;
+  const diet = profile['diet-status'];
+  const body = profile.body;
+
+  // --- FREQUENCY CHECK ---
+  if (analysis.hasData) {
+    if (analysis.avgPerWeek < freq * 0.7) {
+      advice.push({
+        type: 'urgent', title: 'You\'re Not Showing Up',
+        body: `You said you can train ${freq}x/week but you're averaging ${analysis.avgPerWeek}x. That's not a schedule — that's a wish. Nobody ever got fit by planning to work out. You either do it or you don't. Set non-negotiable appointment times and treat them like a doctor's visit. Would you skip your dentist? Then stop skipping the gym.`,
+        action: `Block ${freq} specific days on your calendar RIGHT NOW. Not "sometime this week." Monday, Wednesday, Saturday. Done.`
+      });
+    } else if (analysis.avgPerWeek >= freq * 0.9) {
+      advice.push({
+        type: 'win', title: 'Consistency Is Your Superpower',
+        body: `You're hitting ${analysis.avgPerWeek}x/week — that's exactly what you committed to. Most people don't even get close. This is why you're going to win. Keep this momentum rolling.`,
+        action: 'Don\'t get comfortable. Increase intensity or volume this week — add one more set per exercise or push for an extra rep.'
+      });
+    }
+  }
+
+  // --- GAP ANALYSIS ---
+  if (analysis.hasData && parseFloat(analysis.avgGap) > 5) {
+    advice.push({
+      type: 'urgent', title: `${analysis.avgGap} Days Between Workouts? Come On.`,
+      body: `Your average gap between sessions is ${analysis.avgGap} days. That means you're barely maintaining, let alone progressing. Muscle doesn't wait for you to feel motivated. It adapts to the stimulus you give it — and right now, you're giving it permission to coast.`,
+      action: `Set a phone alarm for your rest days that says "Tomorrow is gym day." No excuses. Lay out your clothes the night before.`
+    });
+  }
+
+  // --- MUSCLE IMBALANCES ---
+  const { strengths, weaknesses, muscleScores } = analysis;
+  if (weaknesses.length > 0) {
+    const weakNames = weaknesses.filter(m => m.sets > 0).map(m => m.name);
+    if (weakNames.length > 0) {
+      const muscle = weakNames[0];
+      const sets = weaknesses[0].sets;
+      advice.push({
+        type: 'urgent', title: `${muscle} Is Getting Neglected`,
+        body: `You've done ${sets} sets on ${muscle} in the last 30 days. That's basically a participation trophy. ${
+          muscle === 'Legs' ? 'Stop skipping leg day. Your upper body isn\'t going to impress anyone if you\'re walking around on toothpicks.' :
+          muscle === 'Core' ? 'Your core is the foundation of EVERYTHING. Weak core = weak lifts, bad posture, and eventual injury.' :
+          muscle === 'Back' ? 'A strong back prevents injuries and builds that V-taper everyone wants. You can\'t just bench press your way to a great physique.' :
+          muscle === 'Shoulders' ? 'Shoulders make your frame look wider and your waist smaller. Neglecting them is a rookie mistake.' :
+          `You need to bring this up or you're going to plateau everywhere else.`
+        }`,
+        action: `Add at least 2 more ${muscle.toLowerCase()} exercises per week. Minimum 12-16 sets total. No exceptions.`
+      });
+    }
+  }
+
+  // --- STRENGTH BALANCE ---
+  if (strengths.length > 0 && weaknesses.length > 1) {
+    const topSets = strengths[0].sets;
+    const botSets = weaknesses.filter(m => m.sets > 0)[0]?.sets || 0;
+    if (topSets > 0 && botSets > 0 && topSets / botSets > 3) {
+      advice.push({
+        type: 'focus', title: 'Your Training Is Lopsided',
+        body: `You're doing ${Math.round(topSets / botSets * 100)}% more volume on ${strengths[0].name} than ${weaknesses.filter(m => m.sets > 0)[0].name}. This creates imbalances that lead to injury and make you look like a cartoon character. Balance isn't boring — it's smart.`,
+        action: `Equalize your volume. Every set of ${strengths[0].name.toLowerCase()} gets a matching set for ${weaknesses.filter(m => m.sets > 0)[0].name.toLowerCase()}.`
+      });
+    }
+  }
+
+  // --- GOAL-SPECIFIC ADVICE ---
+  if (goal === 'fat-loss' || goal === 'recomp') {
+    advice.push({
+      type: 'tip', title: 'The Scale Is Lying to You',
+      body: `Here's the truth: the scale means almost nothing. You could gain muscle and lose fat simultaneously and the scale wouldn't budge. Stop obsessing over the number and start tracking measurements and progress photos. Take a photo every 2 weeks in the same lighting, same pose. That's your real progress report.`,
+      action: 'Log your measurements bi-weekly in the Measure tab. Compare photos side-by-side. The mirror and tape measure don\'t lie.'
+    });
+  }
+
+  if (goal === 'strength') {
+    if (analysis.strengthTrend === 'declining') {
+      advice.push({
+        type: 'urgent', title: 'Your Strength Is DROPPING',
+        body: `Your numbers are going down. That's either overtraining, under-eating, or both. You can't pour from an empty cup. If you're not eating enough protein (0.8-1g per pound of bodyweight), you're literally starving your muscles. Fix the nutrition before you add more weight.`,
+        action: 'Calculate your TDEE, eat at a slight surplus for 2 weeks, and prioritize 150g+ protein daily. Then test your maxes again.'
+      });
+    } else {
+      advice.push({
+        type: 'tip', title: 'Progressive Overload Is Everything',
+        body: `You want to get strong? You need to add weight or reps EVERY session. Not "sometimes." Every. Single. Time. If you benched 135 for 8 last week, you do 140 for 8 or 135 for 9 this week. No exceptions. Track every set.`,
+        action: 'Use the "Add 2.5lbs per week" rule for upper body and "5lbs per week" for lower body. Write it down.'
+      });
+    }
+  }
+
+  if (goal === 'muscle') {
+    advice.push({
+      type: 'tip', title: 'Volume Is King for Growth',
+      body: `Research shows 10-20 sets per muscle group per week is the sweet spot for hypertrophy. Most people do 6-8 and wonder why they're not growing. You need to train with PURPOSE. Every set should be within 2-3 reps of failure. If you could've done 5 more reps, you wasted that set.`,
+      action: `Aim for 12-16 sets per muscle group per week. Track your total volume in the Workouts tab and make sure it's climbing week over week.`
+    });
+  }
+
+  if (goal === 'general') {
+    advice.push({
+      type: 'tip', title: 'Consistency Beats Intensity Every Time',
+      body: `You don't need to destroy yourself in the gym. You need to show up 3-4 times a week, move heavy things, and eat like an adult. That's literally it. Stop looking for the perfect program — the best program is the one you'll actually do.`,
+      action: 'Pick 3 days, stick to compound movements (squat, bench, row, deadlift), and do that for 12 weeks. Then come back and tell me it didn\'t work.'
+    });
+  }
+
+  // --- DIET ADVICE ---
+  if (diet === 'terrible' || diet === 'messy') {
+    advice.push({
+      type: 'urgent', title: 'You Can\'t Out-Train a Bad Diet',
+      body: `I don't care how hard you train. If your nutrition is garbage, you're spinning your wheels. You don't need a "diet" — you need to eat like a functioning adult. Protein at every meal. Vegetables exist. Water is not optional. This is not complicated.`,
+      action: `Start with ONE change: eat 1g of protein per pound of bodyweight every day. That's it. Do that for 2 weeks, then we'll talk about the rest.`
+    });
+  } else if (diet === 'track') {
+    advice.push({
+      type: 'win', title: 'Your Nutrition Game Is Solid',
+      body: `Tracking your food puts you ahead of 90% of people. Most folks have no idea what they're eating. You do. That's power. Keep doing what you're doing and make small adjustments based on results.`,
+      action: 'Review your macros weekly. If you\'re not seeing changes, adjust by 100-200 calories. Small tweaks, big results.'
+    });
+  }
+
+  // --- BODY-SPECIFIC ADVICE ---
+  if (body === 'belly') {
+    advice.push({
+      type: 'focus', title: 'Belly Fat Is the Last to Go — And the First to Come Back',
+      body: `Visceral fat is stubborn because it's hormonally driven. You can't spot-reduce it with crunches — that's a lie sold by supplement companies. The ONLY way to lose belly fat is to be in a consistent caloric deficit while lifting heavy. Your abs are already under there. You just need to reveal them.`,
+      action: `Focus on compound lifts (squats, deadlifts, rows) and a 300-500 calorie daily deficit. No "ab workouts" needed — they're a waste of time.`
+    });
+  }
+
+  // --- PLATEAU ADVICE ---
+  if (obstacle === 'plateau') {
+    advice.push({
+      type: 'urgent', title: 'You\'re Not Stuck — You\'re Comfortable',
+      body: `A plateau means your body adapted to what you're doing. That's not failure — that's a signal. You need to change something: more volume, more intensity, different exercises, or better recovery. Doing the same thing and expecting different results is the definition of insanity.`,
+      action: 'Deload for one week (reduce weight by 40%), then come back and add 10% more volume. Your body needs a shock, not a vacation.'
+    });
+  }
+
+  // --- KNOWLEDGE GAP ---
+  if (obstacle === 'knowledge') {
+    advice.push({
+      type: 'tip', title: 'Stop Researching, Start Training',
+      body: `You don't need to read another article. You don't need another YouTube video. You need to pick up heavy things and put them down. The fundamentals haven't changed in 100 years: progressive overload, adequate protein, enough sleep. Everything else is marketing.`,
+      action: `Use the Template Wizard to build a Push/Pull/Legs split. Start light. Add weight each week. That's your program for the next 12 weeks. Done.`
+    });
+  }
+
+  // --- MOTIVATION ---
+  if (obstacle === 'motivation') {
+    advice.push({
+      type: 'focus', title: 'Motivation Is Garbage. Discipline Is Everything.',
+      body: `You know what motivation does? It gets you to the gym on day one. Discipline gets you there on day 200. You will NEVER feel like training every day. Nobody does. The difference between people who achieve their goals and people who don't is that the first group trains when they don't feel like it. Period.`,
+      action: `Commit to a "no zero days" policy: even on bad days, do ONE set. Just one. You'll almost always end up doing the full workout. The hardest part is starting.`
+    });
+  }
+
+  // --- TIME ---
+  if (obstacle === 'time') {
+    advice.push({
+      type: 'tip', title: 'You Have Time. You\'re Just Not Using It.',
+      body: `You scroll your phone for 2 hours a day. You have time. A full-body workout takes 45 minutes. Three times a week. That's 2.25 hours out of 168. That's 1.3% of your week. You can't spare 1.3%? Stop making excuses and start making time.`,
+      action: `Try 3x/week full-body workouts. 45 minutes max. Compound movements only. No rest between sets longer than 90 seconds. In and out.`
+    });
+  }
+
+  // --- EXPERIENCE-BASED TIPS ---
+  if (experience === 'beginner' && analysis.hasData) {
+    advice.push({
+      type: 'tip', title: 'Newbie Gains Are Real — Don\'t Waste Them',
+      body: `As a beginner, your body is primed to grow. You'll add muscle and lose fat simultaneously if you eat right and train consistently. This window doesn't last forever — it's maybe 6-12 months. Maximize it. Don't waste time on fancy isolation work. Hit the big compounds.`,
+      action: `Squat, bench, deadlift, overhead press, barbell row. 3x/week. Add 5lbs each session. This is your entire program for the next 3 months.`
+    });
+  }
+
+  if (experience === 'advanced' && analysis.hasData && analysis.strengthTrend === 'stable') {
+    advice.push({
+      type: 'focus', title: 'You\'ve Plateaued Because You\'re Afraid to Change',
+      body: `You've been lifting long enough that your body needs a real challenge. Same rep ranges, same exercises, same intensity = same results. You need periodization. Cycle between strength (3-5 reps), hypertrophy (8-12 reps), and endurance (15-20 reps) phases.`,
+      action: `Switch to a 4-week strength block (heavy, low reps), then 4-week hypertrophy block (moderate, higher volume). Track everything.`
+    });
+  }
+
+  // Always end with something motivational
+  advice.push({
+    type: 'win', title: 'The Fact That You\'re Here Means You\'re Serious',
+    body: `Most people never even think about their fitness. They just exist and hope for the best. You're different. You're tracking your workouts, measuring your body, and seeking feedback. That puts you in the top 5% of people who actually care about their health. Now prove it with action.`,
+    action: `Open your next workout, train like you mean it, and check back here in 2 weeks. I'll be watching.`
+  });
+
+  return advice;
+}
+
+// ============================================================
+// RENDER PROFILE
+// ============================================================
+
+function renderProfile() {
+  const container = document.getElementById('profile-content');
+  if (!state.profile) {
+    container.innerHTML = `
+      <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:16px">Your Profile</h2>
+      <div class="card text-center" style="padding:40px 20px">
+        <div style="font-size:3rem;margin-bottom:16px">🏋️</div>
+        <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:8px">Welcome, Athlete</h3>
+        <p style="color:var(--text2);font-size:0.9rem;margin-bottom:20px;max-width:360px;margin-left:auto;margin-right:auto">
+          Take a quick assessment so I can analyze your training, identify weak points, and give you a personalized action plan.
+        </p>
+        <button class="btn btn-primary" onclick="openSurvey()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Start Assessment
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const analysis = computeAnalysis();
+  const advice = generateAdvice(state.profile, analysis);
+  const p = state.profile;
+  const goalLabels = {'fat-loss':'Lose Fat','muscle':'Build Muscle','strength':'Get Stronger','general':'General Fitness','recomp':'Body Recomposition'};
+  const levelLabels = {'beginner':'Beginner (0-6 months)','intermediate':'Intermediate (6mo-2yr)','advanced':'Advanced (2+ years)'};
+  const freqLabels = {'2':'2x/week','3':'3x/week','4':'4x/week','5':'5+ days/week'};
+
+  const maxMuscleSets = Math.max(...analysis.muscleScores.map(m => m.sets), 1);
+
+  container.innerHTML = `
+    <div class="profile-hero">
+      <div class="ph-avatar">${(p.goal || 'G')[0].toUpperCase()}</div>
+      <div class="ph-name">Your Fitness Profile</div>
+      <div class="ph-goal">${goalLabels[p.goal] || p.goal}</div>
+      <div class="ph-level">${levelLabels[p.experience] || ''} • ${freqLabels[p.frequency] || ''}</div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat-card">
+        <div class="stat-value">${analysis.totalWorkoutsAllTime}</div>
+        <div class="stat-label">Total Workouts</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${analysis.workoutsLast30}</div>
+        <div class="stat-label">Last 30 Days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${analysis.totalVolume > 0 ? (analysis.totalVolume >= 1000 ? (analysis.totalVolume/1000).toFixed(1)+'k' : analysis.totalVolume) : '—'}</div>
+        <div class="stat-label">Volume (lbs)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${analysis.strengthTrend === 'improving' ? '↑' : analysis.strengthTrend === 'declining' ? '↓' : '→'}</div>
+        <div class="stat-label">Strength Trend</div>
+      </div>
+    </div>
+
+    <!-- Muscle Balance -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Muscle Balance (30 Days)</div>
+        <div class="text-xs text-muted">${analysis.totalSets} total sets</div>
+      </div>
+      ${analysis.hasData ? analysis.muscleScores.filter(m => m.sets > 0).map(m => {
+        const pct = Math.round((m.sets / maxMuscleSets) * 100);
+        const color = m.pct > 25 ? 'var(--green)' : m.pct > 15 ? 'var(--blue)' : m.pct > 8 ? 'var(--orange)' : 'var(--red)';
+        return `
+          <div class="muscle-bar-row">
+            <div class="mb-label">${m.name}</div>
+            <div class="mb-track"><div class="mb-fill" style="width:${pct}%;background:${color}"></div></div>
+            <div class="mb-value">${m.sets}s</div>
+          </div>
+        `;
+      }).join('') : '<p class="text-sm text-muted" style="padding:12px 0">No workout data yet. Start training to see your muscle balance.</p>'}
+    </div>
+
+    <!-- Measurement Trends -->
+    ${(analysis.weightTrend || analysis.bodyFatTrend) ? `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:10px">Body Trends</div>
+      ${analysis.weightTrend ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span class="text-sm">Weight</span>
+          <span class="trend-badge ${parseFloat(analysis.weightTrend.diff) < 0 ? 'up' : parseFloat(analysis.weightTrend.diff) > 0 ? 'down' : 'flat'}">
+            ${analysis.weightTrend.from} → ${analysis.weightTrend.to} lbs
+            (${parseFloat(analysis.weightTrend.diff) > 0 ? '+' : ''}${analysis.weightTrend.diff})
+          </span>
+        </div>
+      ` : ''}
+      ${analysis.bodyFatTrend ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+          <span class="text-sm">Body Fat</span>
+          <span class="trend-badge ${parseFloat(analysis.bodyFatTrend.diff) < 0 ? 'up' : parseFloat(analysis.bodyFatTrend.diff) > 0 ? 'down' : 'flat'}">
+            ${analysis.bodyFatTrend.from}% → ${analysis.bodyFatTrend.to}%
+            (${parseFloat(analysis.bodyFatTrend.diff) > 0 ? '+' : ''}${analysis.bodyFatTrend.diff}%)
+          </span>
+        </div>
+      ` : ''}
+    </div>
+    ` : ''}
+
+    <!-- Coach Advice -->
+    <div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="font-size:1rem;font-weight:700">Coach's Analysis</h3>
+        <button class="btn btn-secondary btn-sm" onclick="openSurvey()">Retake Quiz</button>
+      </div>
+      ${advice.map(a => `
+        <div class="coach-card ${a.type}">
+          <div class="cc-badge">${a.type === 'urgent' ? '⚠️ Urgent' : a.type === 'focus' ? '🎯 Focus' : a.type === 'win' ? '✅ Win' : '💡 Tip'}</div>
+          <div class="cc-title">${a.title}</div>
+          <div class="cc-body">${a.body}</div>
+          <div class="cc-action">→ ${a.action}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 </script>
 </body>
 </html>
