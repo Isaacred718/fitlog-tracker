@@ -260,6 +260,25 @@ a{color:var(--green);text-decoration:none}
 .superset-link-btn.active{border-style:solid;color:var(--purple);background:rgba(168,124,242,0.08)}
 
 /* Calendar */
+.dash-active-bar{display:flex;align-items:center;gap:10px;padding:12px;background:rgba(140,242,58,0.08);border:1px solid rgba(140,242,58,0.25);border-radius:var(--radius-sm);margin-bottom:12px;cursor:pointer;transition:all .15s}
+.dash-active-bar:hover{background:rgba(140,242,58,0.12)}
+.dash-active-bar .dab-pulse{width:10px;height:10px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.dash-active-bar .dab-info{flex:1}
+.dash-active-bar .dab-name{font-size:0.9rem;font-weight:600;color:var(--green)}
+.dash-active-bar .dab-time{font-size:0.8rem;color:var(--text2);font-variant-numeric:tabular-nums}
+.dash-active-bar .dab-arrow{color:var(--green)}
+.dash-rest-timer{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.dash-rest-timer h4{font-size:0.8rem;font-weight:600;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.dash-rest-timer h4 svg{width:14px;height:14px;color:var(--blue)}
+.drt-btns{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.drt-btn{padding:10px 0;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:0.85rem;font-weight:600;cursor:pointer;transition:all .15s;text-align:center}
+.drt-btn:hover{border-color:var(--blue);color:var(--blue);background:rgba(92,168,242,0.08)}
+.drt-btn.active{border-color:var(--blue);color:var(--bg);background:var(--blue)}
+.drt-btn .drt-time{font-size:1.1rem;font-weight:700;display:block}
+.drt-btn .drt-label{font-size:0.6rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px}
+
+/* Calendar */
 .calendar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
 .cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .cal-header h3{font-size:0.95rem;font-weight:700;color:var(--text)}
@@ -340,8 +359,10 @@ a{color:var(--green);text-decoration:none}
   <main class="main">
     <!-- Dashboard View -->
     <div class="view active" id="view-dashboard">
-      <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:16px">Dashboard</h2>
+      <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:12px">Dashboard</h2>
+      <div id="dashboard-active-workout-bar"></div>
       <div class="stat-grid" id="dashboard-stats"></div>
+      <div class="mt-3" id="dashboard-rest-timer"></div>
       <div class="mt-4" id="dashboard-calendar"></div>
       <div class="mt-4">
         <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:10px">Recent Activity</h3>
@@ -852,6 +873,64 @@ function renderDashboard() {
       </div>`;
     }).join('');
   }
+
+  // Active workout bar
+  const aw = state.activeWorkout;
+  if (aw) {
+    const elapsed = Math.floor((Date.now() - aw.startTime) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const completedSets = aw.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
+    document.getElementById('dashboard-active-workout-bar').innerHTML = `
+      <div class="dash-active-bar" onclick="showView('workout')">
+        <div class="dab-pulse"></div>
+        <div class="dab-info">
+          <div class="dab-name">${aw.name || 'Workout'} in progress</div>
+          <div class="dab-time">${mins}:${String(secs).padStart(2,'0')} &middot; ${completedSets} sets done</div>
+        </div>
+        <div class="dab-arrow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+      </div>`;
+    // Update elapsed time every second
+    if (!window._dashTimerInterval) {
+      window._dashTimerInterval = setInterval(() => {
+        if (!state.activeWorkout || !document.getElementById('view-dashboard').classList.contains('active')) {
+          clearInterval(window._dashTimerInterval);
+          window._dashTimerInterval = null;
+          return;
+        }
+        const el = Math.floor((Date.now() - state.activeWorkout.startTime) / 1000);
+        const m = Math.floor(el / 60);
+        const s = el % 60;
+        const cs = state.activeWorkout.exercises.reduce((sum,e) => sum + e.sets.filter(s2 => s2.completed).length, 0);
+        const bar = document.querySelector('.dab-time');
+        if (bar) bar.textContent = `${m}:${String(s).padStart(2,'0')} · ${cs} sets done`;
+      }, 1000);
+    }
+  } else {
+    document.getElementById('dashboard-active-workout-bar').innerHTML = '';
+    if (window._dashTimerInterval) { clearInterval(window._dashTimerInterval); window._dashTimerInterval = null; }
+  }
+
+  // Quick rest timer
+  const restPresets = [
+    { secs: 30, label: '30s' },
+    { secs: 60, label: '1m' },
+    { secs: 90, label: '1:30' },
+    { secs: 120, label: '2m' }
+  ];
+  document.getElementById('dashboard-rest-timer').innerHTML = `
+    <div class="dash-rest-timer">
+      <h4>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Quick Rest Timer
+      </h4>
+      <div class="drt-btns">
+        ${restPresets.map(p => `<button class="drt-btn" onclick="startRestTimer(${p.secs})"><span class="drt-time">${p.label}</span></button>`).join('')}
+      </div>
+    </div>`;
+
   renderCalendar();
 }
 
