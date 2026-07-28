@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lift-tracker-v1';
+const CACHE_NAME = 'lift-tracker-v2';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -15,6 +15,13 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+    fetch(e.request).then(r => {
+      // Network first, cache as backup
+      if (e.request.method === 'GET') {
+        const clone = r.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      }
+      return r;
+    }).catch(() => caches.match(e.request))
   );
 });
