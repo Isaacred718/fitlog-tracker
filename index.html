@@ -783,7 +783,23 @@ const EXERCISE_DB = [
 
 // Combine built-in catalog with user-created custom exercises
 function getAllExercises() {
-  return [...EXERCISE_CATALOG, ...(state.customExercises || [])];
+  // Merge EXERCISE_CATALOG (has tips/proTips) with EXERCISE_DB (214 exercises, no tips)
+  // EXERCISE_CATALOG wins for exercises it covers; EXERCISE_DB fills in the rest
+  const catalogMap = {};
+  EXERCISE_CATALOG.forEach(e => { catalogMap[e.name.toLowerCase()] = e; });
+  const dbExercises = EXERCISE_DB.map(([name, muscle, equipment]) => {
+    const key = name.toLowerCase();
+    if (catalogMap[key]) return catalogMap[key]; // prefer catalog (has tips)
+    return { id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name, muscle, equipment, tips: [], proTip: '' };
+  });
+  // Dedupe by name (catalog first, then DB extras, then custom)
+  const seen = new Set();
+  const merged = [];
+  [...dbExercises, ...(state.customExercises || [])].forEach(e => {
+    const key = e.name.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); merged.push(e); }
+  });
+  return merged;
 }
 
 // ============================================================
