@@ -437,6 +437,7 @@ a{color:var(--green);text-decoration:none}
           <div class="text-sm text-muted" id="workout-timer-display">00:00</div>
         </div>
         <div class="flex gap-2">
+          <button class="btn btn-sm" style="background:#e8b830;color:#000;font-weight:600;display:none" id="nutrition-btn" onclick="showNutritionInfo()">🍽️ Food</button>
           <button class="btn btn-secondary btn-sm" onclick="finishWorkout()" id="finish-workout-btn" style="display:none">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             Finish
@@ -560,6 +561,11 @@ a{color:var(--green);text-decoration:none}
   <!-- Exercise Detail Modal -->
   <div class="modal-overlay" id="exercise-detail-modal">
     <div class="modal" id="exercise-detail-content"></div>
+  </div>
+
+  <!-- Nutrition Info Modal -->
+  <div class="modal-overlay" id="nutrition-modal">
+    <div class="modal" id="nutrition-content" style="max-width:400px"></div>
   </div>
 
   <!-- Template Editor Modal -->
@@ -1806,6 +1812,7 @@ function startWorkoutFromTemplate(templateId) {
     name: t.name,
     date: new Date().toISOString(),
     startTime: Date.now(),
+    nutrition: t.nutrition || null,
     exercises: t.exercises.map(e => ({
       exerciseId: e.exerciseId,
       name: e.name,
@@ -1821,6 +1828,41 @@ function startWorkoutFromTemplate(templateId) {
   };
   saveState();
   showView('workout');
+  // Show nutrition tip
+  if (t.nutrition) {
+    showToast(t.nutrition.summary || 'Pre-workout: ' + t.nutrition.pre);
+  }
+}
+
+function showNutritionInfo() {
+  const w = state.activeWorkout;
+  if (!w || !w.nutrition) return;
+  document.getElementById('nutrition-content').innerHTML = `
+    <div class="modal-title">
+      <span style="display:flex;align-items:center;gap:6px">🍽️ ${w.name} — Nutrition Guide</span>
+      <button class="icon-btn" onclick="closeModal('nutrition-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
+      <div style="padding:12px;border-radius:10px;background:linear-gradient(135deg,#1a2e1a,#0f1f0f);border:1px solid #4caf5055">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="font-size:1.1rem">🏃</span>
+          <span style="font-weight:600;color:#4caf50;font-size:0.9rem">PRE-WORKOUT — Eat this before:</span>
+        </div>
+        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${w.nutrition.pre}</div>
+      </div>
+      <div style="padding:12px;border-radius:10px;background:linear-gradient(135deg,#2e1a1a,#1f0f0f);border:1px solid #ff3b5c55">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="font-size:1.1rem">🏁</span>
+          <span style="font-weight:600;color:#ff3b5c;font-size:0.9rem">POST-WORKOUT — Eat this after:</span>
+        </div>
+        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${w.nutrition.post}</div>
+      </div>
+      <div style="padding:10px;border-radius:10px;background:var(--card);border:1px solid var(--border);text-align:center;font-size:0.8rem;color:var(--text2)">
+        💧 Don't forget: 16-24 oz of water during your workout. Hydration is not optional.
+      </div>
+    </div>
+  `;
+  openModal('nutrition-modal');
 }
 
 function startEmptyWorkout() {
@@ -1880,10 +1922,12 @@ function renderWorkout() {
         </div>
       </div>`;
     document.getElementById('finish-workout-btn').style.display = 'none';
+    document.getElementById('nutrition-btn').style.display = 'none';
     return;
   }
 
   document.getElementById('finish-workout-btn').style.display = '';
+  document.getElementById('nutrition-btn').style.display = w.nutrition ? '' : 'none';
   document.getElementById('workout-title').textContent = w.name;
 
   // Timer
@@ -2354,6 +2398,17 @@ function viewWorkoutDetail(id) {
         }).join('')}
       </div>
     </div>` : ''}
+    ${w.nutrition ? `
+    <div class="card" style="background:linear-gradient(135deg,#1a2e1a,#0f1f0f);border:1px solid #4caf5055;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:1rem">🍽️</span>
+        <span style="font-size:0.85rem;font-weight:600;color:#4caf50">Nutrition Guide</span>
+      </div>
+      <div style="font-size:0.78rem;color:var(--text2);line-height:1.5">
+        <div><b style="color:#4caf50">🏃 Pre:</b> ${w.nutrition.pre}</div>
+        <div style="margin-top:6px"><b style="color:#ff3b5c">🏁 Post:</b> ${w.nutrition.post}</div>
+      </div>
+    </div>` : ''}
     ${w.exercises.map((e, ei) => {
       const g = e.supersetGroup;
       const SUPERSET_COLORS = ['var(--purple)','var(--blue)','var(--orange)','var(--red)','#5cf2d4','#f2c85c'];
@@ -2654,15 +2709,18 @@ if ('serviceWorker' in navigator) {
 // ============================================================
 loadState();
 
-// Add some default templates if first run
+// Add default templates if first run — each with nutrition advice
 if (state.templates.length === 0 && state.workouts.length === 0) {
   state.templates = [
     {
       id: uid(), name: 'Push Day',
+      nutrition: { pre: 'Eat a carb-heavy meal 1.5-2 hrs before (oatmeal + banana + honey) — you need fuel for compound pressing.',
+        post: 'Down 35-40g fast protein within 90 min — whey shake, chicken breast, or Greek yogurt. Your chest and triceps are rebuilt on protein, not wishful thinking.',
+        summary: '🍚 Carbs before ☕' },
       exercises: [
-        {exerciseId:'barbell-bench-press',name:'Barbell Bench Press',muscle:'Chest',sets:[{reps:8,weight:0,rest:90,type:'warmup'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'barbell-bench-press',name:'Barbell Bench Press',muscle:'Chest',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
         {exerciseId:'incline-bench-press',name:'Incline Bench Press',muscle:'Chest',sets:[{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'}]},
-        {exerciseId:'cable-fly',name:'Cable Fly',muscle:'Chest',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
+        {exerciseId:'dumbbell-fly',name:'Dumbbell Fly',muscle:'Chest',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
         {exerciseId:'overhead-press',name:'Overhead Press',muscle:'Shoulders',sets:[{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'}]},
         {exerciseId:'lateral-raise',name:'Lateral Raise',muscle:'Shoulders',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
         {exerciseId:'tricep-pushdown',name:'Tricep Pushdown',muscle:'Triceps',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
@@ -2670,6 +2728,9 @@ if (state.templates.length === 0 && state.workouts.length === 0) {
     },
     {
       id: uid(), name: 'Pull Day',
+      nutrition: { pre: 'Have slow-burn carbs 2 hrs before (sweet potatoes, brown rice) — deadlifts and rows are the most demanding movements on your CNS.',
+        post: '30-40g protein + fast carbs immediately — your back and biceps just got torn down. Greek yogurt + berries + honey hits the spot.',
+        summary: '🍠 Slow carbs before, 🥛 Protein + carbs after' },
       exercises: [
         {exerciseId:'deadlift',name:'Deadlift',muscle:'Back',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:5,weight:0,rest:120,type:'working'},{reps:5,weight:0,rest:120,type:'working'},{reps:5,weight:0,rest:120,type:'working'}]},
         {exerciseId:'barbell-row',name:'Barbell Row',muscle:'Back',sets:[{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
@@ -2681,6 +2742,9 @@ if (state.templates.length === 0 && state.workouts.length === 0) {
     },
     {
       id: uid(), name: 'Leg Day',
+      nutrition: { pre: 'Eat BIG 2-2.5 hrs before — this is your highest calorie-burning workout. Rice + chicken + avocado gives you slow-release energy that lasts.',
+        post: 'Double up on protein (50g+) — your largest muscle group needs the most repair. Whey isolate + milk, then eat a full meal 1 hr later.',
+        summary: '🍗 Heavy meal before, 🥩 Double protein after' },
       exercises: [
         {exerciseId:'barbell-back-squat',name:'Barbell Back Squat',muscle:'Legs',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:8,weight:0,rest:120,type:'working'},{reps:8,weight:0,rest:120,type:'working'},{reps:8,weight:0,rest:120,type:'working'}]},
         {exerciseId:'romanian-deadlift',name:'Romanian Deadlift',muscle:'Glutes',sets:[{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'}]},
@@ -2688,6 +2752,83 @@ if (state.templates.length === 0 && state.workouts.length === 0) {
         {exerciseId:'leg-curl',name:'Leg Curl',muscle:'Legs',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
         {exerciseId:'leg-extension',name:'Leg Extension',muscle:'Legs',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
         {exerciseId:'calf-raise',name:'Calf Raise',muscle:'Legs',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Chest Focus',
+      nutrition: { pre: 'Light carbs 1 hr before (apple + almonds) — you want energy without feeling full. Chest pressing requires stability, not a full stomach.',
+        post: 'Lean protein + veggies — grilled chicken salad or a shake with greens. Chest recovers fast, so quick-absorbing protein is ideal.',
+        summary: '🥜 Light snack before, 🥗 Lean protein after' },
+      exercises: [
+        {exerciseId:'barbell-bench-press',name:'Barbell Bench Press',muscle:'Chest',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'incline-bench-press',name:'Incline Bench Press',muscle:'Chest',sets:[{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'}]},
+        {exerciseId:'dumbbell-fly',name:'Dumbbell Fly',muscle:'Chest',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
+        {exerciseId:'cable-fly',name:'Cable Fly',muscle:'Chest',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
+        {exerciseId:'push-up',name:'Push-up',muscle:'Chest',sets:[{reps:20,weight:0,rest:45,type:'dropset'},{reps:20,weight:0,rest:45,type:'dropset'},{reps:20,weight:0,rest:45,type:'dropset'}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Back Focus',
+      nutrition: { pre: 'Complex carbs 2 hrs before (rolled oats + banana) — back training demands sustained energy through rows, pulls, and deadlifts.',
+        post: 'Lean red meat or dark poultry + potatoes for recovery. Back muscles are large and need complete protein with iron for recovery.',
+        summary: '🌾 Sustained carbs before, 🥩 Iron-rich protein after' },
+      exercises: [
+        {exerciseId:'deadlift',name:'Deadlift',muscle:'Back',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:5,weight:0,rest:120,type:'working'},{reps:5,weight:0,rest:120,type:'working'}]},
+        {exerciseId:'barbell-row',name:'Barbell Row',muscle:'Back',sets:[{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'pull-up',name:'Pull-up',muscle:'Back',sets:[{reps:8,weight:0,rest:75,type:'working'},{reps:8,weight:0,rest:75,type:'working'},{reps:8,weight:0,rest:75,type:'working'}]},
+        {exerciseId:'seated-cable-row',name:'Seated Cable Row',muscle:'Back',sets:[{reps:10,weight:0,rest:60,type:'working'},{reps:10,weight:0,rest:60,type:'working'},{reps:10,weight:0,rest:60,type:'working'}]},
+        {exerciseId:'face-pulls',name:'Face Pulls',muscle:'Shoulders',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Shoulders Focus',
+      nutrition: { pre: 'Quick-digesting carbs 45 min before (white rice cakes + honey) — you need fast energy but nothing heavy. Shoulder work is all about stability.',
+        post: 'Anti-inflammatory protein — salmon, tuna, or a turmeric shake. Shoulder joints work hard; omega-3s reduce inflammation and aid recovery.',
+        summary: '🍯 Fast carbs before, 🐟 Anti-inflammatory protein after' },
+      exercises: [
+        {exerciseId:'overhead-press',name:'Overhead Press',muscle:'Shoulders',sets:[{reps:5,weight:0,rest:120,type:'warmup'},{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'lateral-raise',name:'Lateral Raise',muscle:'Shoulders',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'front-raise',name:'Front Raise',muscle:'Shoulders',sets:[{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'face-pulls',name:'Face Pulls',muscle:'Shoulders',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'dumbbell-shoulder-press',name:'Dumbbell Shoulder Press',muscle:'Shoulders',sets:[{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Arms Day',
+      nutrition: { pre: 'Simple carbs 30 min before (banana, juice) — arms are small muscles that recover fast. You want pumps, not full digestion.',
+        post: 'Fast-absorbing protein like whey isolate or egg whites. Arms need quick delivery of amino acids for that peak growth window.',
+        summary: '🍌 Quick pre energy, 🥚 Fast protein after' },
+      exercises: [
+        {exerciseId:'barbell-bicep-curl',name:'Barbell Bicep Curl',muscle:'Biceps',sets:[{reps:10,weight:0,rest:60,type:'warmup'},{reps:10,weight:0,rest:60,type:'working'},{reps:10,weight:0,rest:60,type:'working'},{reps:10,weight:0,rest:60,type:'working'}]},
+        {exerciseId:'hammer-curl',name:'Hammer Curl',muscle:'Biceps',sets:[{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'tricep-pushdown',name:'Tricep Pushdown',muscle:'Triceps',sets:[{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'overhead-press',name:'Overhead Press',muscle:'Shoulders',sets:[{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'},{reps:10,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'dumbbell-fly',name:'Dumbbell Fly',muscle:'Chest',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Full Body',
+      nutrition: { pre: 'Your biggest pre-workout meal of the week. Rice + chicken + veggies 2.5 hrs before, then a banana 30 min before. Full body training taps every energy system.',
+        post: 'Protein + carb combo immediately — whey + dextrose or chocolate milk followed by a full meal within 2 hrs. You just taxed everything; refuel everything.',
+        summary: '🍛 Biggest pre meal, 🥛 Protein + carb reload after' },
+      exercises: [
+        {exerciseId:'barbell-bench-press',name:'Barbell Bench Press',muscle:'Chest',sets:[{reps:8,weight:0,rest:90,type:'warmup'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'barbell-back-squat',name:'Barbell Back Squat',muscle:'Legs',sets:[{reps:8,weight:0,rest:90,type:'warmup'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'barbell-row',name:'Barbell Row',muscle:'Back',sets:[{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'},{reps:8,weight:0,rest:90,type:'working'}]},
+        {exerciseId:'overhead-press',name:'Overhead Press',muscle:'Shoulders',sets:[{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'},{reps:10,weight:0,rest:75,type:'working'}]},
+        {exerciseId:'hammer-curl',name:'Hammer Curl',muscle:'Biceps',sets:[{reps:12,weight:0,rest:45,type:'working'},{reps:12,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'plank',name:'Plank',muscle:'Core',sets:[{reps:0,weight:0,rest:45,type:'working',durationSeconds:60},{reps:0,weight:0,rest:45,type:'working',durationSeconds:60}]},
+      ]
+    },
+    {
+      id: uid(), name: 'Core + Abs',
+      nutrition: { pre: 'Light and easy — small piece of fruit 30 min before. Any food on your stomach during ab work will make you miserable.',
+        post: 'Lean protein like turkey breast or tofu — abs are revealed in the kitchen. You can train them all year, but if your diet is off, nobody sees them.',
+        summary: '🍎 Light before, 🥗 Clean protein after — abs are made in the kitchen' },
+      exercises: [
+        {exerciseId:'plank',name:'Plank',muscle:'Core',sets:[{reps:0,weight:0,rest:45,type:'working',durationSeconds:60},{reps:0,weight:0,rest:45,type:'working',durationSeconds:60},{reps:0,weight:0,rest:45,type:'working',durationSeconds:45}]},
+        {exerciseId:'cable-crunch',name:'Cable Crunch',muscle:'Core',sets:[{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'},{reps:15,weight:0,rest:45,type:'working'}]},
+        {exerciseId:'leg-press',name:'Leg Press',muscle:'Legs',sets:[{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'},{reps:12,weight:0,rest:60,type:'working'}]},
       ]
     }
   ];
@@ -3056,6 +3197,22 @@ function generateAdvice(profile, analysis) {
       type: 'win', title: 'Your Nutrition Game Is Solid',
       body: `Tracking your food puts you ahead of 90% of people. Most folks have no idea what they're eating. You do. That's power. Keep doing what you're doing and make small adjustments based on results.`,
       action: 'Review your macros weekly. If you\'re not seeing changes, adjust by 100-200 calories. Small tweaks, big results.'
+    });
+  }
+
+  // --- PRE/POST WORKOUT NUTRITION (Goal-based) ---
+  if (goal === 'muscle' || goal === 'strength') {
+    advice.push({
+      type: 'tip', title: 'Fuel Your Training, Don\'t Just Show Up',
+      body: `Pre-workout carbs aren't optional — they're fuel. A sweet potato or oatmeal 90 minutes before training gives you the glycogen your muscles need to push hard. Post-workout protein within 2 hours isn't a suggestion; it's when your muscles are screaming for amino acids. 30-40g of whey or a solid chicken breast meal. Every. Single. Session.`,
+      action: 'Check the 🍽️ Food button when you start a workout — it\'s customized for that specific body part.'
+    });
+  }
+  if (goal === 'fat-loss' || goal === 'recomp') {
+    advice.push({
+      type: 'tip', title: 'Eat Around Your Workouts, Not Through Them',
+      body: `A big pre-workout meal while cutting can backfire — you feel sluggish and the calories add up. Use pre-workout carbs sparingly (half a banana or rice cakes) and get your protein post-workout. The real calorie burn happens in the 24 hours after lifting due to EPOC, not during the session itself.`,
+      action: 'Try fasted morning training with just black coffee, then your first meal post-workout. It works.'
     });
   }
 
