@@ -253,6 +253,8 @@ a{color:var(--green);text-decoration:none}
 /* Superset */
 .superset-bar{width:4px;border-radius:2px;position:absolute;left:0;top:0;bottom:0}
 .superset-card{position:relative;padding-left:10px !important}
+.superset-card.giant-set-card{border-style:dashed !important}
+.giantset-bar{width:4px;border-radius:2px;position:absolute;left:0;top:0;bottom:0;border:1px dashed rgba(255,255,255,0.3);background:transparent !important}
 .superset-label{font-size:0.65rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px}
 .superset-label .sl-dot{width:8px;height:8px;border-radius:50%}
 .superset-link-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:0.7rem;font-weight:600;border:1px dashed var(--border2);background:none;color:var(--text3);cursor:pointer;transition:all .15s}
@@ -1409,25 +1411,32 @@ function renderTemplateExercises() {
   document.getElementById('template-exercises-editor').innerHTML = t.exercises.map((ex, i) => {
     const g = ex.supersetGroup;
     const barColor = g != null ? groupColors[g] : null;
+    const isGiantSet = g != null && t.exercises.filter(e => e.supersetGroup === g).length >= 3;
+    const groupLabel = g != null ? getGroupLabel(t.exercises, g) : '';
     const supersetLabel = (g != null && (i === 0 || t.exercises[i-1].supersetGroup !== g))
-      ? `<div class="superset-label" style="color:${barColor}"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+      ? `<div class="superset-label" style="color:${barColor}"><span class="sl-dot" style="background:${barColor}"></span>${groupLabel} ${String.fromCharCode(65 + g)}</div>`
       : '';
-    const barHtml = barColor ? `<div class="superset-bar" style="background:${barColor}"></div>` : '';
+    const barHtml = barColor ? (isGiantSet ? `<div class="giantset-bar" style="border-color:${barColor}"></div>` : `<div class="superset-bar" style="background:${barColor}"></div>`) : '';
     // Link button: only show for exercises adjacent to another exercise
     const canLinkPrev = i > 0;
     const canLinkNext = i < t.exercises.length - 1;
     const isLinked = g != null;
+    const canGiantSet = i + 2 < t.exercises.length;
 
     return `
       ${supersetLabel}
-      <div class="card superset-card" style="border-color:${barColor || 'var(--border)'}">
+      <div class="card superset-card ${isGiantSet ? 'giant-set-card' : ''}" style="border-color:${barColor || 'var(--border)'}">
         ${barHtml}
         <div class="flex justify-between items-center mb-2">
           <div class="fw-600 text-sm">${ex.name}</div>
           <div class="flex gap-2">
-            <button class="superset-link-btn ${isLinked?'active':''}" onclick="toggleSuperset(${i})" title="Link/Unlink Superset">
+            ${canGiantSet ? `<button class="superset-link-btn ${isGiantSet?'active':''}" onclick="toggleGiantSet(${i})" title="Link/Unlink Giant Set (3 exercises)">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              ${isLinked ? 'Unlink' : 'Superset'}
+              ${isGiantSet ? 'Unlink 3' : 'Giant Set'}
+            </button>` : ''}
+            <button class="superset-link-btn ${isLinked && !isGiantSet?'active':''}" onclick="toggleSuperset(${i})" title="Link/Unlink Superset">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              ${isLinked && !isGiantSet ? 'Unlink' : 'Superset'}
             </button>
             <button class="icon-btn" onclick="moveTemplateExercise(${i},-1)" ${i===0?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg></button>
             <button class="icon-btn" onclick="moveTemplateExercise(${i},1)" ${i===t.exercises.length-1?'disabled':''}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
@@ -1488,6 +1497,41 @@ function toggleSuperset(i) {
     }
   }
   renderTemplateExercises();
+}
+
+function toggleGiantSet(i) {
+  // Link current exercise and the next 2 (3 exercises total) into a giant set
+  const t = editingTemplate;
+  // Need at least 2 more exercises after this one (i, i+1, i+2)
+  if (i + 2 >= t.exercises.length) return;
+  // Check if any of these are already in a group
+  const exes = [t.exercises[i], t.exercises[i+1], t.exercises[i+2]];
+  const alreadyGrouped = exes.some(e => e.supersetGroup != null);
+  if (alreadyGrouped) {
+    // Unlink all three
+    exes.forEach(e => {
+      const g = e.supersetGroup;
+      if (g != null) {
+        e.supersetGroup = null;
+        const remaining = t.exercises.filter(e2 => e2.supersetGroup === g);
+        if (remaining.length <= 1) {
+          remaining.forEach(e2 => e2.supersetGroup = null);
+        }
+      }
+    });
+  } else {
+    // Create new group
+    const maxGroup = t.exercises.reduce((max, e) => Math.max(max, e.supersetGroup != null ? e.supersetGroup : -1), -1);
+    const newGroup = maxGroup + 1;
+    exes.forEach(e => e.supersetGroup = newGroup);
+  }
+  renderTemplateExercises();
+}
+
+function getGroupLabel(exercises, groupIdx) {
+  // Determine if a group is a superset (2 exercises) or giant set (3+)
+  const groupExercises = exercises.filter(e => e.supersetGroup === groupIdx);
+  return groupExercises.length >= 3 ? 'Giant Set' : 'Superset';
 }
 
 function addExerciseToTemplate() {
@@ -1851,13 +1895,15 @@ function renderWorkout() {
       const groupIdx = groupIds.indexOf(g);
       barColor = SUPERSET_COLORS[groupIdx % SUPERSET_COLORS.length];
     }
+    const isGiantSet = g != null && w.exercises.filter(e => e.supersetGroup === g).length >= 3;
+    const groupLabel = g != null ? getGroupLabel(w.exercises, g) : '';
     const supersetLabel = (g != null && (ei === 0 || w.exercises[ei-1].supersetGroup !== g))
-      ? `<div class="superset-label" style="color:${barColor};padding:0 12px;margin-top:8px"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+      ? `<div class="superset-label" style="color:${barColor};padding:0 12px;margin-top:8px"><span class="sl-dot" style="background:${barColor}"></span>${groupLabel} ${String.fromCharCode(65 + g)}</div>`
       : '';
-    const barHtml = barColor ? `<div class="superset-bar" style="background:${barColor}"></div>` : '';
+    const barHtml = barColor ? (isGiantSet ? `<div class="giantset-bar" style="border-color:${barColor}"></div>` : `<div class="superset-bar" style="background:${barColor}"></div>`) : '';
     return `
     ${supersetLabel}
-    <div class="workout-ex-block superset-card" style="${barColor ? 'border-color:'+barColor : ''}">
+    <div class="workout-ex-block superset-card ${isGiantSet ? 'giant-set-card' : ''}" style="${barColor ? 'border-color:'+barColor : ''}">
       ${barHtml}
       <div class="workout-ex-header">
         <div>
@@ -2269,12 +2315,14 @@ function viewWorkoutDetail(id) {
         const groupIds = [...new Set(w.exercises.map(x => x.supersetGroup).filter(x => x != null))].sort();
         barColor = SUPERSET_COLORS[groupIds.indexOf(g) % SUPERSET_COLORS.length];
       }
+      const isGiantSet = g != null && w.exercises.filter(ex => ex.supersetGroup === g).length >= 3;
+      const groupLabel = g != null ? getGroupLabel(w.exercises, g) : '';
       const supersetLabel = (g != null && (ei === 0 || w.exercises[ei-1].supersetGroup !== g))
-        ? `<div class="superset-label" style="color:${barColor};margin-top:10px"><span class="sl-dot" style="background:${barColor}"></span>Superset ${String.fromCharCode(65 + g)}</div>`
+        ? `<div class="superset-label" style="color:${barColor};margin-top:10px"><span class="sl-dot" style="background:${barColor}"></span>${groupLabel} ${String.fromCharCode(65 + g)}</div>`
         : '';
       return `
       ${supersetLabel}
-      <div class="mb-2" style="${barColor ? 'border-left:3px solid '+barColor+';padding-left:8px;margin-left:4px' : ''}">
+      <div class="mb-2" style="${barColor ? 'border-left:' + (isGiantSet ? '3px dashed ' : '3px solid ') + barColor + ';padding-left:8px;margin-left:4px' : ''}">
         <div class="fw-600 text-sm mb-2">${e.name} <span class="text-muted text-xs">${e.muscle}</span></div>
         ${e.sets.map((s, si) => `
           <div class="flex justify-between text-xs" style="padding:4px 0;border-bottom:1px solid var(--border);${s.completed?'':'opacity:0.4'}">
