@@ -1,25 +1,16 @@
 {
-  "name": "FitLog — Workout & Body Tracker",
-  "short_name": "FitLog",
-  "description": "Track workouts, sets, reps, and body measurements with CSV export for iCloud Numbers sync.",
-  "start_url": "/index.html",
+  "name": "Lift Tracker",
+  "short_name": "Lift Tracker",
+  "description": "Track your workouts, measure your progress",
+  "start_url": "./index.html",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#0f1117",
-  "theme_color": "#6c5ce7",
-  "categories": ["health", "fitness"],
+  "background_color": "#0a0f0a",
+  "theme_color": "#0a0f0a",
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%230a0f0a'/><rect x='16' y='64' width='24' height='64' rx='6' fill='%238cf23a'/><rect x='40' y='72' width='16' height='48' rx='3' fill='%238cf23a' opacity='.7'/><rect x='152' y='64' width='24' height='64' rx='6' fill='%238cf23a'/><rect x='136' y='72' width='16' height='48' rx='3' fill='%238cf23a' opacity='.7'/><rect x='56' y='88' width='80' height='16' rx='4' fill='%238cf23a'/></svg>",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml"
     }
   ]
 }
