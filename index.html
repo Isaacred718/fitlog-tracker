@@ -483,9 +483,19 @@ a{color:var(--green);text-decoration:none}
       <div class="card">
         <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:12px">Data Management</h3>
         <div class="flex flex-col gap-2">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <label class="text-sm" style="white-space:nowrap;font-weight:500">Body Weight (lbs)</label>
+            <input type="number" id="settings-body-weight" value="${(state.settings.bodyWeight || 180)}"
+              onchange="state.settings.bodyWeight = parseFloat(this.value) || 180; saveState(); showToast('Body weight saved')"
+              style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:0.85rem" placeholder="180">
+          </div>
           <button class="btn btn-secondary btn-block" onclick="exportWorkouts()">Export Workouts (CSV)</button>
           <button class="btn btn-secondary btn-block" onclick="exportMeasurements()">Export Measurements (CSV)</button>
           <button class="btn btn-block" style="background:#30d158;color:#000;font-weight:600" onclick="exportForAppleHealth()">Export for Apple Health (JSON)</button>
+          <label class="btn btn-secondary btn-block" style="cursor:pointer">
+            Import Heart Rate Data (JSON)
+            <input type="file" accept=".json" onchange="importHeartRateData(event)" style="display:none">
+          </label>
           <label class="btn btn-secondary btn-block" style="cursor:pointer">
             Import Workouts (CSV)
             <input type="file" accept=".csv" onchange="importWorkouts(event)" style="display:none">
@@ -864,7 +874,8 @@ let state = {
   activeWorkout: null,
   customExercises: [],
   settings: {},
-  profile: null
+  profile: null,
+  heartRateData: []
 };
 
 function loadState() {
@@ -2291,6 +2302,7 @@ function renderHistory() {
     const v = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
     const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
     const dur = w.duration ? Math.floor(w.duration / 1000) : 0;
+    const hr = getHeartRateForWorkout(w);
     return `<div class="history-item" onclick="viewWorkoutDetail('${w.id}')" style="cursor:pointer">
       <div class="hi-date">${formatDate(w.date)}</div>
       <div class="hi-title">${w.name || 'Workout'}</div>
@@ -2299,6 +2311,7 @@ function renderHistory() {
         <span>${sets} sets</span>
         <span>${v.toLocaleString()} lbs vol</span>
         ${dur ? `<span>${formatTime(dur)}</span>` : ''}
+        ${hr ? `<span style="color:#ff3b5c">♥ ${hr.avg} bpm</span>` : ''}
       </div>
       <div class="hi-exercises">${w.exercises.map(e => e.name).join(', ')}</div>
     </div>`;
@@ -2309,6 +2322,8 @@ function viewWorkoutDetail(id) {
   const w = state.workouts.find(x => x.id === id);
   if (!w) return;
   const v = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
+  const hr = getHeartRateForWorkout(w);
+  const calories = estimateCalories(w.exercises, w.duration ? Math.floor(w.duration / 1000) : 0);
   document.getElementById('exercise-detail-content').innerHTML = `
     <div class="modal-title">
       <span>${w.name || 'Workout'}</span>
@@ -2319,8 +2334,26 @@ function viewWorkoutDetail(id) {
       <div class="stat-card"><div class="stat-value">${w.exercises.length}</div><div class="stat-label">Exercises</div></div>
       <div class="stat-card"><div class="stat-value">${w.exercises.reduce((s,e)=>s+e.sets.filter(s2=>s2.completed).length,0)}</div><div class="stat-label">Sets</div></div>
       <div class="stat-card"><div class="stat-value" style="font-size:1.2rem">${(v/1000).toFixed(1)}k</div><div class="stat-label">Volume</div></div>
-      <div class="stat-card"><div class="stat-value">${w.exercises.reduce((s,e)=>s+e.sets.filter(s2=>s2.completed).reduce((ss,s2)=>ss+(s2.actualReps||0),0),0)}</div><div class="stat-label">Total Reps</div></div>
+      <div class="stat-card"><div class="stat-value">${calories}</div><div class="stat-label">Est. Calories</div></div>
     </div>
+    ${hr ? `
+    <div class="card" style="background:linear-gradient(135deg,#1a0a0a,#2a0f1a);border:1px solid #ff3b5c33;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#ff3b5c" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        <span style="font-size:0.85rem;font-weight:600;color:#ff3b5c">Heart Rate</span>
+      </div>
+      <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);gap:6px">
+        <div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#ff3b5c">${hr.avg}</div><div style="font-size:0.65rem;color:#ff3b5c99">AVG BPM</div></div>
+        <div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#ff3b5c">${hr.max}</div><div style="font-size:0.65rem;color:#ff3b5c99">MAX BPM</div></div>
+        <div style="text-align:center"><div style="font-size:1.1rem;font-weight:700;color:#ff3b5c">${hr.min}</div><div style="font-size:0.65rem;color:#ff3b5c99">MIN BPM</div></div>
+      </div>
+      <div style="margin-top:8px;height:40px;display:flex;align-items:end;gap:1px">
+        ${hr.samples.map(bpm => {
+          const h = Math.max(4, Math.round((bpm / hr.max) * 36));
+          return '<div style="flex:1;background:#ff3b5c;border-radius:2px 2px 0 0;height:' + h + 'px;opacity:0.7"></div>';
+        }).join('')}
+      </div>
+    </div>` : ''}
     ${w.exercises.map((e, ei) => {
       const g = e.supersetGroup;
       const SUPERSET_COLORS = ['var(--purple)','var(--blue)','var(--orange)','var(--red)','#5cf2d4','#f2c85c'];
@@ -2360,6 +2393,50 @@ function deleteWorkout(id) {
 }
 
 // ============================================================
+// HEART RATE DATA
+// ============================================================
+function importHeartRateData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.heartRateSamples || !Array.isArray(data.heartRateSamples)) {
+        showToast('Invalid heart rate file format', 'error'); return;
+      }
+      // Merge with existing data, dedupe by timestamp
+      const existing = new Map((state.heartRateData || []).map(s => [s.date, s]));
+      data.heartRateSamples.forEach(s => existing.set(s.date, s));
+      state.heartRateData = [...existing.values()].sort((a,b) => new Date(a.date) - new Date(b.date));
+      saveState();
+      showToast(`Imported ${data.heartRateSamples.length} heart rate samples`);
+      renderHistory();
+    } catch(err) { showToast('Failed to parse heart rate file', 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+function getHeartRateForWorkout(workout) {
+  if (!state.heartRateData || state.heartRateData.length === 0 || !workout.date) return null;
+  const start = new Date(workout.date).getTime();
+  const end = workout.duration ? start + workout.duration : start + 3600000;
+  const samples = state.heartRateData.filter(s => {
+    const t = new Date(s.date).getTime();
+    return t >= start && t <= end && s.bpm > 0;
+  });
+  if (samples.length === 0) return null;
+  const bpms = samples.map(s => s.bpm);
+  return {
+    avg: Math.round(bpms.reduce((a,b) => a+b, 0) / bpms.length),
+    min: Math.min(...bpms),
+    max: Math.max(...bpms),
+    samples: bpms,
+    count: bpms.length
+  };
+}
+
+// ============================================================
 // CSV EXPORT/IMPORT
 // ============================================================
 function exportWorkouts() {
@@ -2374,6 +2451,34 @@ function exportWorkouts() {
   showToast('Workouts exported');
 }
 
+// MET values by muscle group (Compendium of Physical Activities)
+// Compound lifts get higher METs; isolation exercises lower
+const MET_VALUES = {
+  'Chest': 5.0, 'Back': 5.0, 'Legs': 6.0, 'Shoulders': 4.5,
+  'Arms': 4.0, 'Core': 4.0, 'Traps': 4.5, 'Full Body': 6.0, 'default': 5.0
+};
+
+function estimateCalories(exercises, durationSec) {
+  // Use body weight from settings (default 180 lbs / 81.6 kg)
+  const weightKg = (state.settings.bodyWeight || 180) * 0.453592;
+  const durationHr = durationSec / 3600;
+  // Calculate weighted average MET based on completed sets per muscle group
+  let totalMetTime = 0;
+  let totalSets = 0;
+  exercises.forEach(ex => {
+    const completedSets = ex.sets.filter(s => s.completed);
+    const met = MET_VALUES[ex.muscle] || MET_VALUES['default'];
+    // Weight compound exercises higher (heavier sets = more effort)
+    const avgWeight = completedSets.reduce((s, set) => s + (set.actualWeight || set.weight || 0), 0) / (completedSets.length || 1);
+    const weightMultiplier = avgWeight > 100 ? 1.15 : avgWeight > 50 ? 1.0 : 0.85;
+    totalMetTime += met * weightMultiplier * completedSets.length;
+    totalSets += completedSets.length;
+  });
+  const avgMet = totalSets > 0 ? totalMetTime / totalSets : 5.0;
+  // Calories = MET × body weight (kg) × duration (hours)
+  return Math.round(avgMet * weightKg * durationHr);
+}
+
 function exportForAppleHealth() {
   if (state.workouts.length === 0) { showToast('No workouts to export', 'error'); return; }
   const workouts = state.workouts.map(w => {
@@ -2382,8 +2487,7 @@ function exportForAppleHealth() {
     const start = w.date || new Date().toISOString();
     const durationSec = w.duration ? Math.floor(w.duration / 1000) : completedSets * 90;
     const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
-    // Estimate calories: ~0.06 kcal per lb of volume for strength training
-    const caloriesBurned = Math.round(totalVolume * 0.06);
+    const caloriesBurned = estimateCalories(w.exercises, durationSec);
     const muscles = [...new Set(w.exercises.map(e => e.muscle))];
     return {
       name: w.name || 'Workout',
@@ -2405,7 +2509,7 @@ function exportForAppleHealth() {
       muscles: muscles
     };
   });
-  const json = JSON.stringify({ version: 1, exportDate: new Date().toISOString(), workouts }, null, 2);
+  const json = JSON.stringify({ version: 2, exportDate: new Date().toISOString(), bodyWeight: state.settings.bodyWeight || 180, workouts }, null, 2);
   const blob = new Blob([json], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

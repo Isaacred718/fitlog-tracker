@@ -1,16 +1,20 @@
 # Lift Tracker → Apple Health: Shortcut Setup
 
-This one-time setup lets you push your Lift Tracker workouts into Apple Health / Fitness.
+This setup lets you push Lift Tracker workouts into Apple Health **and** pull heart rate data back from your Apple Watch.
 
-## Step 1: Export Your Workouts
+## Step 1: Set Your Body Weight
+
+Open Lift Tracker → **Settings** → enter your body weight in lbs. This improves calorie accuracy.
+
+## Step 2: Export Your Workouts
 
 1. Open Lift Tracker → **Settings** (gear icon)
 2. Tap **Export for Apple Health (JSON)**
-3. Save the `lift-tracker-health.json` file to **iCloud Drive** (e.g., in a folder called `HealthImports`)
+3. Save the `lift-tracker-health.json` file to **iCloud Drive** → `HealthImports` folder
 
-## Step 2: Create the Apple Shortcut
+## Step 3: Create the Push Shortcut (Workouts → Apple Health)
 
-Open the **Shortcuts** app on your iPhone and create a new shortcut with these steps:
+Open **Shortcuts** app → create new shortcut → add these actions:
 
 ### Actions (in order):
 
@@ -26,75 +30,109 @@ Open the **Shortcuts** app on your iPhone and create a new shortcut with these s
 
    a. **Get Dictionary from Input**
 
-   b. **Get Value for Key** — Key: `name` — from the dictionary → set variable `WorkoutName`
+   b. **Get Value for Key** — Key: `name` → set variable `WorkoutName`
 
-   c. **Get Value for Key** — Key: `startDate` — from the dictionary
+   c. **Get Value for Key** — Key: `startDate`
 
-   d. **Adjust Date** — Add: `0 seconds` (this formats it as a Date)
+   d. **Adjust Date** — Add: `0 seconds` → set variable `WorkoutStart`
 
-   e. **Set Variable** — Name: `WorkoutStart`
+   e. **Get Value for Key** — Key: `endDate`
 
-   f. **Get Value for Key** — Key: `endDate` — from the dictionary
+   f. **Adjust Date** — Add: `0 seconds` → set variable `WorkoutEnd`
 
-   g. **Adjust Date** — Add: `0 seconds`
+   g. **Get Value for Key** — Key: `caloriesBurned`
 
-   h. **Set Variable** — Name: `WorkoutEnd`
-
-   i. **Get Value for Key** — Key: `caloriesBurned` — from the dictionary
-
-   j. **Log Health Sample** — Type: **Active Energy Burned**
+   h. **Log Health Sample** — Type: **Active Energy Burned**
       - Value: the calories number
       - Unit: kilocalories
       - Start Date: `WorkoutStart`
       - End Date: `WorkoutEnd`
 
-   k. **Get Value for Key** — Key: `durationSeconds` — from the dictionary
+   i. **Get Value for Key** — Key: `durationSeconds`
 
-   l. **Log Health Sample** — Type: **Workout**
+   j. **Log Health Sample** — Type: **Workout**
       - Activity Type: **Traditional Strength Training**
-      - Duration: the duration value (convert from seconds → minutes if needed)
+      - Duration: the duration value (convert seconds → minutes)
       - Start Date: `WorkoutStart`
       - End Date: `WorkoutEnd`
       - Calories Burned: the calories value
 
-   m. **End Repeat**
+   k. **End Repeat**
 
-### Simpler Alternative (if the above is complex):
+## Step 4: Create the Pull Shortcut (Apple Watch Heart Rate → Lift Tracker)
 
-If building the full shortcut is tricky, here's a **minimal version** that logs each workout as a strength training session:
+This shortcut pulls heart rate data from Apple Health and saves it as a JSON file for Lift Tracker to import.
 
-1. **Get File** → `HealthImports/lift-tracker-health.json`
-2. **Get Dictionary from Input**
-3. **Get Value for Key** → `workouts`
-4. **Repeat with Each**
-5. Inside loop: **Log Health Sample** → Type: **Workout**
-   - Activity Type: **Traditional Strength Training**
-   - Use "Repeat Item" values for start/end dates and duration
-6. **End Repeat**
+### Actions (in order):
 
-## Step 3: Run It
+1. **Date** — Current Date → set variable `Now`
 
-After exporting from Lift Tracker:
-1. Open Shortcuts
-2. Tap the "Lift Tracker Import" shortcut
-3. It reads the JSON and logs each workout to Apple Health
+2. **Adjust Date** — Subtract: `7 days` → set variable `StartDate`
 
-Your workouts will appear in:
-- **Apple Health** → Browse → Activity → Workouts
-- **Fitness** app → History tab
+3. **Find Health Samples** — Type: **Heart Rate**
+   - Start: `StartDate`
+   - End: `Now`
+   - Sort: Date, Oldest First
 
-## Tips
+4. **Repeat with Each** — from the health samples found
 
-- **Re-run safely**: The Shortcut only adds new entries. If you re-export with the same workouts, you'll get duplicates — so delete old entries first or export only new workouts.
-- **Check estimated calories**: Lift Tracker estimates ~0.06 kcal per lb of volume lifted. Adjust the formula in `exportForAppleHealth()` if the numbers feel off.
-- **Automate**: In Shortcuts, go to Automations → create a "When I arrive at gym" trigger that runs this shortcut automatically.
+   Inside the repeat loop:
+
+   a. **Get Dictionary from Input**
+
+   b. **Get Value for Key** — Key: `value` (the BPM number)
+
+   c. **Get Value for Key** — Key: `startDate`
+
+   d. **Set Variable** — Name: `SampleDate`
+
+   e. **Set Variable** — Name: `SampleBPM`
+
+   f. **Dictionary** — with keys:
+      - `date`: `SampleDate`
+      - `bpm`: `SampleBPM`
+
+   g. **Add to Variable** — Name: `HeartRateSamples` — Value: the dictionary
+
+   h. **End Repeat**
+
+5. **Dictionary** — with key:
+   - `heartRateSamples`: `HeartRateSamples`
+
+6. **Get File** — Path: `HealthImports/heart-rate-data.json` — Toggle OFF "Error if not found"
+
+7. **Save File** — Path: `HealthImports/heart-rate-data.json` — Toggle ON "Overwrite if exists"
+
+## Step 5: Import Heart Rate into Lift Tracker
+
+1. Run the Pull Shortcut (Step 4) — it saves `heart-rate-data.json` to iCloud Drive
+2. Open Lift Tracker → **Settings** → **Import Heart Rate Data (JSON)**
+3. Select the `heart-rate-data.json` file from iCloud Drive
+
+Your workouts will now show:
+- **♥ AVG / MAX / MIN BPM** in workout detail
+- **♥ avg bpm** badge in history list
+- **Mini heart rate chart** in workout detail view
 
 ## Calorie Estimation
 
-The JSON export estimates calories using:
-```
-caloriesBurned = totalVolume × 0.06
-```
-where `totalVolume = sum(reps × weight)` across all completed sets.
+The export uses MET (Metabolic Equivalent of Task) values per muscle group:
 
-For a typical 45-min strength session with ~15,000 lbs total volume, this gives ~900 kcal, which is in the ballpark of what Apple Watch estimates for similar sessions.
+| Muscle Group | MET Value |
+|---|---|
+| Legs, Full Body | 6.0 |
+| Chest, Back | 5.0 |
+| Shoulders, Traps | 4.5 |
+| Arms, Core | 4.0 |
+
+Formula: `Calories = MET × body_weight_kg × duration_hours`
+
+Heavy sets (>100 lbs) get a 1.15× multiplier; light sets (<50 lbs) get 0.85×.
+
+Set your body weight in Settings for accurate results.
+
+## Tips
+
+- **Re-run safely**: Re-importing the same heart rate JSON deduplicates by timestamp.
+- **Calorie tuning**: Adjust MET values in the `MET_VALUES` object in `index.html` if estimates feel off.
+- **Automate**: Create a Shortcuts Automation triggered by "When I arrive at gym" to auto-run both shortcuts.
