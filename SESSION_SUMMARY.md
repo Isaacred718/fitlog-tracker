@@ -33,7 +33,11 @@
 - **OAuth client redirect URIs fixed** in Google Cloud Console (auto-created "Web client"):
   - Authorized JS origins: `https://isaacred718.github.io`, `http://localhost:5000`, `https://lift-tracker-fade7.firebaseapp.com`
   - Authorized redirect URIs: `https://isaacred718.github.io/__/auth/handler`, `https://lift-tracker-fade7.firebaseapp.com/__/auth/handler`, `https://lift-tracker-fade7.web.app/__/auth/handler`
-- **Code fix**: `renderCloudUI()` added to `onAuthStateChanged` handler for signed-in case, and when navigating to Settings view
+- **Code fix v1**: `renderCloudUI()` added to `onAuthStateChanged` handler for signed-in case, and when navigating to Settings view
+- **Code fix v2**: 
+  - Added `.then()` handler to `signInWithPopup` to explicitly handle successful auth (instead of relying only on `onAuthStateChanged`)
+  - Wrapped `onAuthStateChanged` async handler body in try/catch so sync errors don't block UI updates
+  - Added `console.log` throughout sign-in flow for debugging
 - All changes deployed to GitHub Pages
 
 ### Remaining
