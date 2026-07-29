@@ -1065,17 +1065,23 @@ async function initFirebase(config) {
     // Listen for auth state
     auth.onAuthStateChanged(async (user) => {
       currentUser = user;
-      if (user) {
-        updateSyncStatus('synced', user.displayName || user.email);
-        // Sync from cloud to catch updates from other devices
-        await syncFromFirestore(user);
-        // Push local data to cloud
-        syncToFirestore(state);
-        renderCloudUI();
-      } else {
-        currentUser = null;
-        updateSyncStatus('offline', 'Not signed in');
-        renderCloudUI();
+      try {
+        if (user) {
+          updateSyncStatus('synced', user.displayName || user.email);
+          console.log('[Auth] Signed in:', user.email);
+          // Sync from cloud to catch updates from other devices
+          await syncFromFirestore(user);
+          // Push local data to cloud
+          syncToFirestore(state);
+          renderCloudUI();
+        } else {
+          currentUser = null;
+          console.log('[Auth] Signed out');
+          updateSyncStatus('offline', 'Not signed in');
+          renderCloudUI();
+        }
+      } catch(e) {
+        console.error('[Auth] State change error:', e);
       }
     });
     renderCloudUI();
@@ -1098,17 +1104,28 @@ function signInWithGoogle() {
   if (isStandalone || isMobile) {
     // Redirect works on iOS Safari and PWA
     auth.signInWithRedirect(googleProvider).catch(e => {
-      console.error('Sign in redirect error:', e);
+      console.error('[Auth] Sign-in redirect error:', e);
       updateSyncStatus('error', 'Sign-in failed');
       showToast('Sign in failed: ' + e.message, 'error');
       renderCloudUI();
     });
   } else {
-    auth.signInWithPopup(googleProvider).catch(e => {
-      console.error('Sign in error:', e);
+    auth.signInWithPopup(googleProvider).then(result => {
+      // Explicit success handler
+      console.log('[Auth] Popup sign-in result:', result.user ? result.user.email : 'no user');
+      if (!currentUser && result.user) {
+        // onAuthStateChanged might have already handled this, but ensure UI updates
+        currentUser = result.user;
+        updateSyncStatus('synced', result.user.displayName || result.user.email);
+        renderCloudUI();
+      }
+    }).catch(e => {
+      console.error('[Auth] Sign-in popup error:', e.code, e.message);
       // Fallback to redirect if popup blocked
       if (e.code === 'auth/popup-blocked') {
+        updateSyncStatus('syncing', 'Popup blocked, trying redirect…');
         auth.signInWithRedirect(googleProvider).catch(e2 => {
+          console.error('[Auth] Sign-in redirect fallback error:', e2);
           updateSyncStatus('error', 'Sign-in failed');
           showToast('Sign in failed: ' + e2.message, 'error');
           renderCloudUI();
