@@ -1071,6 +1071,7 @@ async function initFirebase(config) {
         await syncFromFirestore(user);
         // Push local data to cloud
         syncToFirestore(state);
+        renderCloudUI();
       } else {
         currentUser = null;
         updateSyncStatus('offline', 'Not signed in');
@@ -1371,6 +1372,7 @@ function showView(name) {
   if (name === 'history') renderHistory();
   if (name === 'workout') renderWorkout();
   if (name === 'profile') renderProfile();
+  if (name === 'settings') renderCloudUI();
 }
 
 // ============================================================
