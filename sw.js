@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lift-tracker-v5';
+const CACHE_NAME = 'lift-tracker-v6';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
@@ -14,14 +14,32 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  const isNavigate = e.request.mode === 'navigate';
+
   e.respondWith(
-    fetch(e.request).then(r => {
-      // Network first, cache as backup
-      if (e.request.method === 'GET') {
-        const clone = r.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-      }
-      return r;
-    }).catch(() => caches.match(e.request))
+    caches.match(e.request).then(cached => {
+      // Stale-while-revalidate: serve the cached shell immediately and
+      // refresh it in the background, so offline never blocks the UI.
+      const refresh = fetch(e.request)
+        .then(r => {
+          if (r && r.ok) {
+            const clone = r.clone();
+            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+            if (cached && isNavigate) {
+              Promise.all([cached.text(), r.clone().text()]).then(([oldText, newText]) => {
+                if (oldText !== newText) {
+                  clients.matchAll({type: 'window', includeUncontrolled: true}).then(wins => {
+                    wins.forEach(w => w.postMessage({type: 'APP_UPDATE'}));
+                  });
+                }
+              }).catch(() => {});
+            }
+          }
+          return r;
+        })
+        .catch(() => cached || caches.match('./index.html'));
+      return cached || refresh;
+    })
   );
 });

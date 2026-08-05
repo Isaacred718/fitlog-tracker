@@ -122,6 +122,15 @@ a{color:var(--green);text-decoration:none}
 .set-check{width:32px;height:32px;border-radius:50%;border:2px solid var(--border2);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
 .set-check.done{background:var(--green);border-color:var(--green);color:var(--bg)}
 .set-check.done svg{display:block}
+.set-ctl-row{grid-column:1/-1;display:grid;grid-template-columns:1fr auto auto auto;gap:6px;margin-top:4px;align-items:center}
+.set-type-select{appearance:none;width:100%;padding:5px 8px;font-size:0.72rem;font-weight:600;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xs);cursor:pointer;outline:none}
+.set-type-select option{background:var(--surface);color:var(--text)}
+.set-move-btn,.set-del-btn{width:30px;height:30px;border-radius:var(--radius-xs);border:1px solid var(--border);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;font-size:0.9rem;line-height:1}
+.set-move-btn{color:var(--text3)}
+.set-move-btn:hover:not(:disabled){background:var(--surface2);color:var(--text)}
+.set-move-btn:disabled{opacity:0.3;cursor:default}
+.set-del-btn{color:var(--red)}
+.set-del-btn:hover{background:rgba(255,82,82,0.1)}
 
 /* Workout Exercise Block */
 .workout-ex-block{margin-bottom:16px}
@@ -794,6 +803,7 @@ const SET_TYPES = [
   {id:'restpause',name:'Rest Pause',color:'var(--blue)'},
   {id:'mechdrop',name:'Mech. Drop',color:'var(--purple)'},
 ];
+const SET_TYPE_IDS = new Set(SET_TYPES.map(t => t.id));
 
 const MUSCLE_GROUPS = [...new Set(EXERCISE_CATALOG.map(e => e.muscle))];
 const MUSCLE_COLORS = {Chest:'var(--blue)',Back:'var(--green)',Shoulders:'var(--purple)',Biceps:'var(--orange)',Triceps:'var(--red)',Legs:'var(--green2)',Glutes:'var(--purple)',Core:'var(--orange)',Cardio:'var(--red)'};
@@ -966,22 +976,60 @@ function getAllExercises() {
 // ============================================================
 // STATE
 // ============================================================
-let state = {
-  templates: [],
-  workouts: [],
-  measurements: [],
-  activeWorkout: null,
-  customExercises: [],
-  settings: {},
-  profile: null,
-  heartRateData: []
-};
+const SCHEMA_VERSION = 2;
+
+function defaultState() {
+  return {
+    templates: [],
+    workouts: [],
+    measurements: [],
+    activeWorkout: null,
+    customExercises: [],
+    settings: {},
+    profile: null,
+    heartRateData: [],
+    _schemaVersion: SCHEMA_VERSION
+  };
+}
+
+let state = defaultState();
 
 function loadState() {
   try {
     const saved = localStorage.getItem('liftTracker');
-    if (saved) state = {...state, ...JSON.parse(saved)};
-  } catch(e) { console.error('Failed to load state', e); }
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (!parsed || typeof parsed !== 'object') throw new Error('Corrupt state');
+      state = {...state, ...parsed};
+    }
+  } catch(e) {
+    console.error('Failed to load state', e);
+    // Preserve the corrupt blob for recovery instead of silently losing it.
+    const raw = localStorage.getItem('liftTracker');
+    if (raw) {
+      try { localStorage.setItem('liftTracker_corrupt_' + Date.now(), raw); } catch(_) {}
+    }
+    state = defaultState();
+    try { localStorage.removeItem('liftTracker'); } catch(_) {}
+  }
+  migrateState();
+}
+
+function migrateState() {
+  const current = state._schemaVersion || 1;
+  if (current === SCHEMA_VERSION) return;
+  if (current < 2) {
+    // v1 → v2: structure is unchanged. Sync now uses per-record timestamps
+    // stamped during cloud sync, so no data reshape is required here.
+    state.workouts = state.workouts || [];
+    state.templates = state.templates || [];
+    state.measurements = state.measurements || [];
+    state.customExercises = state.customExercises || [];
+    state.heartRateData = state.heartRateData || [];
+    state.settings = state.settings || {};
+    state._schemaVersion = SCHEMA_VERSION;
+  }
+  try { localStorage.setItem('liftTracker', JSON.stringify(state)); } catch(e) {}
 }
 
 function saveState() {
@@ -1052,6 +1100,20 @@ async function initFirebase(config) {
     auth = firebase.auth();
     db = firebase.firestore();
     googleProvider = new firebase.auth.GoogleAuthProvider();
+
+    // Offline persistence queues writes in IndexedDB and retries them when
+    // connectivity returns, so saves made offline are no longer dropped.
+    try {
+      db.enablePersistence({ synchronizeTabs: false }).catch(err => {
+        // failed-precondition: another tab already enabled persistence —
+        // harmless, that tab keeps working. unimplemented: browser unsupported.
+        if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+          console.warn('Offline persistence not enabled:', err.code);
+        }
+      });
+    } catch(e) {
+      console.warn('Offline persistence init:', e);
+    }
 
     // Handle redirect-based sign-in result (iOS PWA)
     try {
@@ -1187,28 +1249,112 @@ function updateSyncStatus(status, label) {
   }
 }
 
+// Collections mirrored to Firestore subcollections under users/{uid}.
+// One document per record: avoids the 1 MiB single-doc limit, spreads
+// writes across documents (no 1 write/sec per-doc bottleneck), and lets
+// each record sync on its own updatedAt timestamp.
+const SYNC_COLLECTIONS = ['workouts', 'templates', 'measurements', 'customExercises', 'heartRateData'];
+
+function syncCacheKey() { return 'liftTrackerSync'; }
+
+function loadSyncCache() {
+  try {
+    const raw = localStorage.getItem(syncCacheKey());
+    const c = raw ? JSON.parse(raw) : {};
+    if (!c.collections) c.collections = {};
+    return c;
+  } catch(e) { return { lastSyncedAt: 0, collections: {} }; }
+}
+
+function saveSyncCache(cache) {
+  try { localStorage.setItem(syncCacheKey(), JSON.stringify(cache)); } catch(e) {}
+}
+
+// Stable fingerprint for change detection. Ignores sync metadata so a
+// record is never re-uploaded just because its _updatedAt was stamped.
+function recordFingerprint(rec) {
+  const copy = Object.assign({}, rec);
+  delete copy._updatedAt;
+  delete copy._deleted;
+  delete copy._deletedAt;
+  try { return JSON.stringify(copy); } catch(e) { return 'obj:' + (rec && rec.id); }
+}
+
+function docIdFor(collection, rec) {
+  let base;
+  if (collection === 'heartRateData') {
+    // Heart-rate samples dedupe on `date`; reuse it as the doc id.
+    base = (rec && rec.date) || (rec && rec.id) || uid();
+  } else {
+    base = (rec && rec.id) || (rec && rec.date) || uid();
+  }
+  return 'd' + String(base).replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
 async function syncToFirestore(data) {
   if (!currentUser || !db || syncInProgress) return;
+  const now = Date.now();
+  // Debounce: skip if we synced less than 2 seconds ago.
+  if (now - lastSyncTime < 2000) return;
+  lastSyncTime = now;
   syncInProgress = true;
   try {
-    const now = Date.now();
-    // Debounce: skip if we synced less than 2 seconds ago
-    if (now - lastSyncTime < 2000) { syncInProgress = false; return; }
-    lastSyncTime = now;
+    const uid = currentUser.uid;
+    const userRef = db.collection('users').doc(uid);
+    const cache = loadSyncCache();
 
-    const payload = { ...data };
-    // Remove activeWorkout in progress (don't sync mid-workout state)
-    const activeSnapshot = payload.activeWorkout ? { ...payload.activeWorkout, active: true } : null;
-    payload.activeWorkout = activeSnapshot;
-    payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+    for (const collection of SYNC_COLLECTIONS) {
+      const local = Array.isArray(data[collection]) ? data[collection] : [];
+      const colCache = cache.collections[collection] || (cache.collections[collection] = {});
+      const colRef = userRef.collection(collection);
+      const seen = new Set();
 
-    await db.collection('users').doc(currentUser.uid).set({
-      data: payload,
+      // Upload new or changed records (per-record last-write-wins).
+      for (const rec of local) {
+        const id = docIdFor(collection, rec);
+        seen.add(id);
+        const fp = recordFingerprint(rec);
+        if (colCache[id] && colCache[id]._deleted === undefined && colCache[id].fingerprint === fp) continue;
+        rec._updatedAt = Date.now();
+        const payload = Object.assign({}, rec);
+        payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+        await colRef.doc(id).set(payload, { merge: true });
+        colCache[id] = { fingerprint: recordFingerprint(rec), _updatedAt: rec._updatedAt };
+      }
+
+      // Soft-delete (tombstone) records that were previously synced but are
+      // gone locally, so other devices know to drop them too.
+      for (const id in colCache) {
+        if (seen.has(id) || colCache[id]._deleted) continue;
+        const deletedAt = Date.now();
+        const tomb = { _deleted: true, _deletedAt: deletedAt, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+        await colRef.doc(id).set(tomb, { merge: true });
+        colCache[id] = { fingerprint: 'deleted', _deleted: true, _deletedAt: deletedAt };
+      }
+    }
+
+    // Meta doc: profile + settings (firebase config stays local-only) and
+    // the schema version that gates legacy migration.
+    const meta = {
       email: currentUser.email,
       displayName: currentUser.displayName || '',
+      _schemaVersion: SCHEMA_VERSION,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    updateSyncStatus('synced', currentUser.displayName || currentUser.email);
+    };
+    if (data.profile) meta.profile = data.profile;
+    if (data.settings) {
+      const s = Object.assign({}, data.settings);
+      delete s.firebaseConfig;
+      meta.settings = s;
+    }
+    await userRef.set(meta, { merge: true });
+
+    cache.lastSyncedAt = Date.now();
+    saveSyncCache(cache);
+    // Persist the stamped _updatedAt values so conflict resolution
+    // survives reloads.
+    try { localStorage.setItem('liftTracker', JSON.stringify(data)); } catch(e) {}
+    updateSyncStatus(navigator.onLine ? 'synced' : 'offline', navigator.onLine ? (currentUser.displayName || currentUser.email) : 'Queued offline');
   } catch(e) {
     console.error('Firestore sync error:', e);
     // Don't show toast for every save — just update icon
@@ -1221,43 +1367,138 @@ async function syncToFirestore(data) {
 async function syncFromFirestore(user) {
   if (!db || !user) return;
   try {
-    const doc = await db.collection('users').doc(user.uid).get();
-    if (!doc.exists) {
-      // First time — upload local data
-      syncToFirestore(state);
+    const uid = user.uid;
+    const userRef = db.collection('users').doc(uid);
+    const metaDoc = await userRef.get();
+    const meta = metaDoc.exists ? metaDoc.data() : null;
+
+    // Legacy: the old code stored one big `data` blob per user. Migrate once.
+    if (meta && meta.data && !meta._schemaVersion) {
+      await migrateLegacyData(uid, meta);
+    }
+    if (!meta || !meta._schemaVersion) {
+      // First run with subcollections — seed the cloud from local data.
+      await syncToFirestore(state);
       return;
     }
-    const cloudData = doc.data().data;
-    if (!cloudData) return;
 
-    // Firestore timestamps can be a Timestamp object or ISO string
-    let cloudTime = 0;
-    if (cloudData.updatedAt) {
-      if (typeof cloudData.updatedAt === 'object' && cloudData.updatedAt.toDate) {
-        cloudTime = cloudData.updatedAt.toDate().getTime();
-      } else {
-        cloudTime = new Date(cloudData.updatedAt).getTime();
+    const cache = loadSyncCache();
+    const cacheCols = cache.collections || (cache.collections = {});
+    let changed = false;
+
+    for (const collection of SYNC_COLLECTIONS) {
+      const snap = await userRef.collection(collection).get();
+      const cloudById = {};
+      snap.forEach(d => { cloudById[d.id] = d.data(); });
+
+      const localArr = Array.isArray(state[collection]) ? state[collection] : [];
+      const localById = {};
+      localArr.forEach(r => { localById[docIdFor(collection, r)] = r; });
+      const colCache = cacheCols[collection] || (cacheCols[collection] = {});
+
+      // Adopt cloud records newer than the local copy (per-record LWW).
+      for (const id in cloudById) {
+        const cloud = cloudById[id];
+        const local = localById[id];
+        const cloudT = cloud._updatedAt || 0;
+        const localT = local ? (local._updatedAt || 0) : -1;
+        if (cloud._deleted) {
+          if (localT >= (cloud._deletedAt || cloudT)) continue; // local wins
+          if (local) delete localById[id];
+          continue;
+        }
+        if (cloudT > localT) {
+          const rec = Object.assign({}, cloud);
+          delete rec.updatedAt;
+          localById[id] = rec;
+        }
+      }
+
+      // Records we previously pushed but that are gone from cloud were
+      // deleted on another device — drop them unless locally newer.
+      for (const id in colCache) {
+        if (colCache[id]._deleted) continue;
+        if (!(id in cloudById) && localById[id]) {
+          if ((localById[id]._updatedAt || 0) > (colCache[id]._updatedAt || 0)) continue;
+          delete localById[id];
+        }
+      }
+
+      const newArr = Object.values(localById);
+      if (collection === 'heartRateData') {
+        newArr.sort((a, b) => new Date(a.date) - new Date(b.date));
+      }
+      if (JSON.stringify(newArr) !== JSON.stringify(localArr)) {
+        state[collection] = newArr;
+        changed = true;
+      }
+
+      // Mirror cloud into the cache so adopted records aren't re-uploaded.
+      for (const id in cloudById) {
+        const cloud = cloudById[id];
+        if (cloud._deleted) {
+          colCache[id] = { fingerprint: 'deleted', _deleted: true, _deletedAt: cloud._deletedAt || 0 };
+        } else if (!colCache[id] || colCache[id]._deleted || colCache[id].fingerprint !== recordFingerprint(cloud)) {
+          colCache[id] = { fingerprint: recordFingerprint(cloud), _updatedAt: cloud._updatedAt || 0 };
+        }
       }
     }
-    const localTime = state._localUpdatedAt || 0;
 
-    // Merge: take the newer version, or merge if close in time
-    if (cloudTime > localTime + 5000) {
-      // Cloud is significantly newer — replace local with cloud
-      const { updatedAt, ...cleanCloud } = cloudData;
-      state = { ...state, ...cleanCloud };
+    // Meta: adopt a newer profile, merge settings without clobbering the
+    // local firebase config.
+    if (meta.profile) {
+      const localT = state.profile ? new Date(state.profile.completedAt || 0).getTime() : -1;
+      const cloudT = new Date(meta.profile.completedAt || 0).getTime();
+      if (cloudT > localT) { state.profile = meta.profile; changed = true; }
+    }
+    if (meta.settings) {
+      const localSettings = state.settings || {};
+      const merged = Object.assign({}, meta.settings, localSettings);
+      merged.firebaseConfig = localSettings.firebaseConfig;
+      if (JSON.stringify(merged) !== JSON.stringify(state.settings)) {
+        state.settings = merged;
+        changed = true;
+      }
+    }
+
+    if (changed) {
       localStorage.setItem('liftTracker', JSON.stringify(state));
       showToast('Cloud data synced to this device');
-      // Re-render views
       renderCloudUI();
-    } else if (localTime > cloudTime + 5000) {
-      // Local is newer — push to cloud
-      syncToFirestore(state);
     }
-    // Otherwise they're close — cloud write already happened on saveState
+    saveSyncCache(cache);
+    // Converge: upload anything still newer locally.
+    syncToFirestore(state);
   } catch(e) {
     console.error('Firestore read error:', e);
     // Offline — that's ok, local data works
+  }
+}
+
+async function migrateLegacyData(uid, meta) {
+  try {
+    const legacy = meta.data;
+    if (!legacy || typeof legacy !== 'object') return;
+    let cloudTime = 0;
+    if (legacy.updatedAt) {
+      cloudTime = (typeof legacy.updatedAt === 'object' && legacy.updatedAt.toDate)
+        ? legacy.updatedAt.toDate().getTime()
+        : new Date(legacy.updatedAt).getTime();
+    }
+    const localTime = state._localUpdatedAt || 0;
+    if (cloudTime > localTime + 5000) {
+      // Cloud blob is meaningfully newer — replace local with it.
+      const clean = Object.assign({}, legacy);
+      delete clean.updatedAt;
+      state = Object.assign({}, state, clean);
+      localStorage.setItem('liftTracker', JSON.stringify(state));
+    }
+    // Drop the legacy blob so the doc becomes a clean meta doc.
+    await db.collection('users').doc(uid).update({
+      data: firebase.firestore.FieldValue.delete()
+    }).catch(() => {});
+  } catch(e) {
+    console.error('Legacy migration error:', e);
   }
 }
 
@@ -1371,6 +1612,24 @@ saveState = function() {
 // ============================================================
 function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2,5); }
 
+// Completed sets store the actually logged load in actualReps/actualWeight;
+// planned weight/reps are only a fallback for older records. Volume must
+// always use the actual values or the totals come out wrong.
+function setVolume(s) {
+  if (!s || !s.completed) return 0;
+  // Nullish coalescing: only missing fields (legacy records) fall back to
+  // planned values. A real 0 stays 0 — `||` would wrongly resurrect the
+  // planned weight/reps for a set logged at zero.
+  const reps = s.actualReps ?? s.reps ?? 0;
+  const weight = s.actualWeight ?? s.weight ?? 0;
+  return reps * weight;
+}
+
+function workoutVolume(w) {
+  if (!w || !Array.isArray(w.exercises)) return 0;
+  return w.exercises.reduce((es, e) => es + (Array.isArray(e.sets) ? e.sets.reduce((ss, s2) => ss + setVolume(s2), 0) : 0), 0);
+}
+
 function formatDate(d) {
   const date = new Date(d);
   return date.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
@@ -1439,7 +1698,7 @@ function renderDashboard() {
   const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
   const weekWorkouts = state.workouts.filter(w => new Date(w.date) >= weekStart);
   const totalSets = state.workouts.reduce((sum, w) => sum + w.exercises.reduce((s, e) => s + e.sets.filter(s2 => s2.completed).length, 0), 0);
-  const totalVolume = state.workouts.reduce((sum, w) => sum + w.exercises.reduce((es, e) => es + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps || 0) * (s2.weight || 0) : 0), 0), 0), 0);
+  const totalVolume = state.workouts.reduce((sum, w) => sum + workoutVolume(w), 0);
   const latestWeight = state.measurements.length > 0 ? state.measurements[state.measurements.length - 1].values.weight : null;
 
   document.getElementById('dashboard-stats').innerHTML = `
@@ -1458,7 +1717,7 @@ function renderDashboard() {
       </div>`;
   } else {
     document.getElementById('dashboard-activity').innerHTML = recent.map(w => {
-      const v = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
+      const v = workoutVolume(w);
       const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
       return `<div class="history-item" style="cursor:pointer" onclick="viewWorkoutDetail('${w.id}')">
         <div class="hi-date">${formatDate(w.date)}</div>
@@ -1602,7 +1861,7 @@ function renderCalendar() {
     if (dw.length > 0) {
       const w = dw[0];
       const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
-      const vol = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
+      const vol = workoutVolume(w);
       detailHtml = `<div class="cal-day-detail">
         <div class="cdd-date">${dateLabel}</div>
         <div class="cdd-title">${w.name || 'Workout'}</div>
@@ -2453,6 +2712,16 @@ function renderWorkout() {
             <button class="set-check ${s.completed?'done':''}" onclick="toggleWorkoutSet(${ei},${si})">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
             </button>
+            <div class="set-ctl-row">
+              <select class="set-type-select" style="color:${(setTypeMap[s.type]||setTypeMap.working).color};border-color:${(setTypeMap[s.type]||setTypeMap.working).color}44" onchange="changeWorkoutSetType(${ei},${si},this.value)" title="Set type">
+                ${SET_TYPES.map(st => `<option value="${st.id}" ${s.type===st.id?'selected':''}>${st.name}</option>`).join('')}
+              </select>
+              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},-1)" ${si===0?'disabled':''} title="Move up">↑</button>
+              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},1)" ${si===ex.sets.length-1?'disabled':''} title="Move down">↓</button>
+              <button class="set-del-btn" onclick="deleteWorkoutSet(${ei},${si})" title="Delete set">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
           </div>
         `).join('')}
         <div style="padding:8px 12px">
@@ -2500,6 +2769,38 @@ function addSetToWorkout(ei, typeId) {
     type: typeId, actualReps: last?.actualReps || 10, actualWeight: last?.actualWeight || 0, completed: false
   });
   saveState(); renderWorkout();
+}
+
+function changeWorkoutSetType(ei, si, typeId) {
+  if (!state.activeWorkout) return;
+  const set = state.activeWorkout?.exercises?.[ei]?.sets?.[si];
+  if (!set || !SET_TYPE_IDS.has(typeId)) return;
+  set.type = typeId;
+  saveState(); renderWorkout();
+}
+
+function moveWorkoutSet(ei, si, dir) {
+  if (!state.activeWorkout) return;
+  const sets = state.activeWorkout?.exercises?.[ei]?.sets;
+  if (!sets) return;
+  const to = si + dir;
+  if (to < 0 || to >= sets.length) return;
+  [sets[si], sets[to]] = [sets[to], sets[si]];
+  saveState(); renderWorkout();
+}
+
+function deleteWorkoutSet(ei, si) {
+  if (!state.activeWorkout) return;
+  const ex = state.activeWorkout.exercises[ei];
+  if (!ex || !ex.sets?.[si]) return;
+  if (ex.sets.length <= 1) {
+    openConfirm('Delete Set', `This is the only set for ${ex.name}. Delete the whole exercise?`, () => removeWorkoutExercise(ei));
+    return;
+  }
+  openConfirm('Delete Set', 'Delete this set?', () => {
+    ex.sets.splice(si, 1);
+    saveState(); renderWorkout();
+  });
 }
 
 function removeWorkoutExercise(ei) {
@@ -2813,7 +3114,7 @@ function renderHistory() {
   }
   const sorted = [...state.workouts].reverse();
   document.getElementById('history-list').innerHTML = sorted.map(w => {
-    const v = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
+    const v = workoutVolume(w);
     const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
     const dur = w.duration ? Math.floor(w.duration / 1000) : 0;
     const hr = getHeartRateForWorkout(w);
@@ -2835,7 +3136,7 @@ function renderHistory() {
 function viewWorkoutDetail(id) {
   const w = state.workouts.find(x => x.id === id);
   if (!w) return;
-  const v = w.exercises.reduce((s,e) => s + e.sets.reduce((ss, s2) => ss + (s2.completed ? (s2.reps||0)*(s2.weight||0) : 0), 0), 0);
+  const v = workoutVolume(w);
   const hr = getHeartRateForWorkout(w);
   const calories = estimateCalories(w.exercises, w.duration ? Math.floor(w.duration / 1000) : 0);
   document.getElementById('exercise-detail-content').innerHTML = `
@@ -2994,7 +3295,7 @@ function estimateCalories(exercises, durationSec) {
     const completedSets = ex.sets.filter(s => s.completed);
     const met = MET_VALUES[ex.muscle] || MET_VALUES['default'];
     // Weight compound exercises higher (heavier sets = more effort)
-    const avgWeight = completedSets.reduce((s, set) => s + (set.actualWeight || set.weight || 0), 0) / (completedSets.length || 1);
+    const avgWeight = completedSets.reduce((s, set) => s + (set.actualWeight ?? set.weight ?? 0), 0) / (completedSets.length || 1);
     const weightMultiplier = avgWeight > 100 ? 1.15 : avgWeight > 50 ? 1.0 : 0.85;
     totalMetTime += met * weightMultiplier * completedSets.length;
     totalSets += completedSets.length;
@@ -3008,7 +3309,7 @@ function exportForAppleHealth() {
   if (state.workouts.length === 0) { showToast('No workouts to export', 'error'); return; }
   const workouts = state.workouts.map(w => {
     const completedSets = w.exercises.reduce((s,e) => s + e.sets.filter(s2=>s2.completed).length, 0);
-    const totalVolume = w.exercises.reduce((s,e) => s + e.sets.reduce((ss,s2) => ss + (s2.completed?(s2.actualReps||0)*(s2.actualWeight||0):0), 0), 0);
+    const totalVolume = w.exercises.reduce((s,e) => s + e.sets.reduce((ss,s2) => ss + setVolume(s2), 0), 0);
     const start = w.date || new Date().toISOString();
     const durationSec = w.duration ? Math.floor(w.duration / 1000) : completedSets * 90;
     const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
@@ -3024,8 +3325,8 @@ function exportForAppleHealth() {
         name: e.name,
         muscle: e.muscle,
         sets: e.sets.filter(s => s.completed).map(s => ({
-          reps: s.actualReps || s.reps || 0,
-          weight: s.actualWeight || s.weight || 0,
+          reps: s.actualReps ?? s.reps ?? 0,
+          weight: s.actualWeight ?? s.weight ?? 0,
           type: s.type || 'working'
         }))
       })),
@@ -3171,6 +3472,11 @@ function escHtml(str) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'APP_UPDATE' && typeof showToast === 'function') {
+      showToast('Update available — refresh to get the latest version');
+    }
   });
 }
 
@@ -3472,7 +3778,7 @@ function computeAnalysis() {
       muscleVolume[muscle] = (muscleVolume[muscle] || 0) + completedSets.length;
       totalSets += completedSets.length;
       completedSets.forEach(s => {
-        if (s.actualWeight && s.actualReps) totalVolume += s.actualWeight * s.actualReps;
+        totalVolume += setVolume(s);
       });
     });
   });

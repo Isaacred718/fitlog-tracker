@@ -38,10 +38,17 @@
   - Added `.then()` handler to `signInWithPopup` to explicitly handle successful auth (instead of relying only on `onAuthStateChanged`)
   - Wrapped `onAuthStateChanged` async handler body in try/catch so sync errors don't block UI updates
   - Added `console.log` throughout sign-in flow for debugging
-- All changes deployed to GitHub Pages
+- **Firestore security rules fixed** via Firebase Rules REST API using the service account key (`~/Downloads/lift-tracker-fade7-firebase-adminsdk-fbsvc-602cf5083c.json`): created ruleset `b5a9e6e4-...` (`allow read, write: if request.auth != null`) and PATCHed release `cloud.firestore` — verified live via API
+- **Code fix v3** (committed `e9ded05`, deployed):
+  - `getRedirectResult()` now has a `.then()` success handler (previously errors-only, so redirect sign-in results were silently dropped)
+  - `onAuthStateChanged` renders the signed-in UI **immediately**; Firestore sync runs in the background so a slow read can't leave the UI stuck on "Not signed in"
+  - Redirect flow now also used for Firefox/Safari (was mobile/PWA only)
+  - `auth/popup-closed-by-user` handled without an error toast
+  - Service worker bumped to `lift-tracker-v4`
+- **Sign-in verified working in real Chrome** (user-tested). CDP-controlled browser can't fully validate it (popups blocked by automation).
 
 ### Remaining
-- Test sign-in again (OAuth changes may take 5 min to a few hours to propagate)
+- Test redirect sign-in on iPhone PWA / Safari / Firefox (redirect path — most important to confirm on the actual phone)
 - Test full cloud sync flow (sign in → auto-upload → sign in on other device → download)
 
 ## Key Decisions
