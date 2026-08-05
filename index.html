@@ -1054,9 +1054,19 @@ async function initFirebase(config) {
     googleProvider = new firebase.auth.GoogleAuthProvider();
 
     // Handle redirect-based sign-in result (iOS PWA)
-    auth.getRedirectResult().catch(e => {
+    auth.getRedirectResult().then(result => {
+      if (result && result.user) {
+        console.log('[Auth] Redirect sign-in result:', result.user.email);
+        if (!currentUser) {
+          currentUser = result.user;
+          updateSyncStatus('synced', result.user.displayName || result.user.email);
+          renderCloudUI();
+          syncToFirestore(state);
+        }
+      }
+    }).catch(e => {
       console.warn('Redirect sign-in error:', e.code, e.message);
-      if (e.code && e.code !== 'auth/no-auth-event') {
+      if (e.code && e.code !== 'auth/no-auth-event' && e.code !== 'auth/popup-closed-by-user') {
         updateSyncStatus('error', 'Auth error');
         showToast('Sign-in error: ' + e.message, 'error');
       }
@@ -1065,23 +1075,23 @@ async function initFirebase(config) {
     // Listen for auth state
     auth.onAuthStateChanged(async (user) => {
       currentUser = user;
-      try {
-        if (user) {
-          updateSyncStatus('synced', user.displayName || user.email);
-          console.log('[Auth] Signed in:', user.email);
-          // Sync from cloud to catch updates from other devices
+      if (user) {
+        console.log('[Auth] Signed in:', user.email);
+        updateSyncStatus('synced', user.displayName || user.email);
+        // Render immediately; sync runs in the background so a slow
+        // Firestore read can never leave the UI stuck on "Not signed in".
+        renderCloudUI();
+        try {
           await syncFromFirestore(user);
-          // Push local data to cloud
           syncToFirestore(state);
-          renderCloudUI();
-        } else {
-          currentUser = null;
-          console.log('[Auth] Signed out');
-          updateSyncStatus('offline', 'Not signed in');
-          renderCloudUI();
+        } catch(e) {
+          console.error('[Auth] State change error:', e);
         }
-      } catch(e) {
-        console.error('[Auth] State change error:', e);
+      } else {
+        currentUser = null;
+        console.log('[Auth] Signed out');
+        updateSyncStatus('offline', 'Not signed in');
+        renderCloudUI();
       }
     });
     renderCloudUI();
@@ -1098,11 +1108,16 @@ function signInWithGoogle() {
     return;
   }
   updateSyncStatus('syncing', 'Signing in…');
-  // Use popup on desktop, redirect on mobile/PWA for iOS compatibility
+  // Firefox and Safari block third-party cookies needed for popup flow.
+  // Use redirect for all browsers except Chrome/Edge/Opera.
+  const ua = navigator.userAgent;
   const isStandalone = window.navigator.standalone === true;
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  if (isStandalone || isMobile) {
-    // Redirect works on iOS Safari and PWA
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+  const isFirefox = /firefox/i.test(ua);
+  const useRedirect = isStandalone || isMobile || isSafari || isFirefox;
+  if (useRedirect) {
+    console.log('[Auth] Using redirect sign-in (browser: ' + (isStandalone?'standalone':isMobile?'mobile':isSafari?'safari':isFirefox?'firefox':'other') + ')');
     auth.signInWithRedirect(googleProvider).catch(e => {
       console.error('[Auth] Sign-in redirect error:', e);
       updateSyncStatus('error', 'Sign-in failed');
@@ -1111,17 +1126,14 @@ function signInWithGoogle() {
     });
   } else {
     auth.signInWithPopup(googleProvider).then(result => {
-      // Explicit success handler
       console.log('[Auth] Popup sign-in result:', result.user ? result.user.email : 'no user');
       if (!currentUser && result.user) {
-        // onAuthStateChanged might have already handled this, but ensure UI updates
         currentUser = result.user;
         updateSyncStatus('synced', result.user.displayName || result.user.email);
         renderCloudUI();
       }
     }).catch(e => {
       console.error('[Auth] Sign-in popup error:', e.code, e.message);
-      // Fallback to redirect if popup blocked
       if (e.code === 'auth/popup-blocked') {
         updateSyncStatus('syncing', 'Popup blocked, trying redirect…');
         auth.signInWithRedirect(googleProvider).catch(e2 => {
@@ -1130,6 +1142,10 @@ function signInWithGoogle() {
           showToast('Sign in failed: ' + e2.message, 'error');
           renderCloudUI();
         });
+      } else if (e.code === 'auth/popup-closed-by-user') {
+        console.log('[Auth] Popup closed by user');
+        updateSyncStatus('offline', 'Not signed in');
+        renderCloudUI();
       } else {
         updateSyncStatus('error', 'Sign-in failed');
         showToast('Sign in failed: ' + e.message, 'error');
