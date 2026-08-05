@@ -1054,6 +1054,9 @@ async function initFirebase(config) {
     googleProvider = new firebase.auth.GoogleAuthProvider();
 
     // Handle redirect-based sign-in result (iOS PWA)
+    try {
+      console.log('[Auth] Pending redirect keys:', Object.keys(sessionStorage).filter(k => k.includes('firebase') || k.includes('redirect') || k.includes('auth')));
+    } catch(e) {}
     auth.getRedirectResult().then(result => {
       if (result && result.user) {
         console.log('[Auth] Redirect sign-in result:', result.user.email);
@@ -1063,6 +1066,8 @@ async function initFirebase(config) {
           renderCloudUI();
           syncToFirestore(state);
         }
+      } else {
+        console.log('[Auth] No redirect result on load');
       }
     }).catch(e => {
       console.warn('Redirect sign-in error:', e.code, e.message);
@@ -1108,16 +1113,14 @@ function signInWithGoogle() {
     return;
   }
   updateSyncStatus('syncing', 'Signing in…');
-  // Firefox and Safari block third-party cookies needed for popup flow.
-  // Use redirect for all browsers except Chrome/Edge/Opera.
-  const ua = navigator.userAgent;
+  // Redirect is only required for iOS PWA standalone mode (popups are not
+  // supported there). Everywhere else popup is more reliable — iOS Safari
+  // tabs complete the OAuth popup fine, while the redirect flow loses its
+  // result after the round trip on iOS Safari.
   const isStandalone = window.navigator.standalone === true;
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
-  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-  const isFirefox = /firefox/i.test(ua);
-  const useRedirect = isStandalone || isMobile || isSafari || isFirefox;
+  const useRedirect = isStandalone;
   if (useRedirect) {
-    console.log('[Auth] Using redirect sign-in (browser: ' + (isStandalone?'standalone':isMobile?'mobile':isSafari?'safari':isFirefox?'firefox':'other') + ')');
+    console.log('[Auth] Using redirect sign-in (standalone PWA)');
     auth.signInWithRedirect(googleProvider).catch(e => {
       console.error('[Auth] Sign-in redirect error:', e);
       updateSyncStatus('error', 'Sign-in failed');
