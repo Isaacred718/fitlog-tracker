@@ -1,6 +1,19 @@
 const CACHE_NAME = 'lift-tracker-v6';
 const ASSETS = ['./index.html', './manifest.json'];
 
+// Domains that should never be cached (auth, APIs, external resources)
+const BYPASS_CACHE = [
+  'accounts.google.com',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com',
+  'firebaseinstallations.googleapis.com',
+  'firebase.googleapis.com',
+  'firestore.googleapis.com',
+  'www.gstatic.com',
+  'fonts.googleapis.com',
+  'fonts.gstatic.com'
+];
+
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
   self.skipWaiting();
@@ -15,12 +28,25 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  
+  const url = new URL(e.request.url);
   const isNavigate = e.request.mode === 'navigate';
 
+  // Check if this is an auth/API domain that should bypass cache
+  const shouldBypassCache = BYPASS_CACHE.some(domain => url.hostname.includes(domain));
+
+  if (shouldBypassCache) {
+    // For auth and external APIs: network-first, fall back to offline page
+    e.respondWith(
+      fetch(e.request)
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // For app resources: stale-while-revalidate with update notification
   e.respondWith(
     caches.match(e.request).then(cached => {
-      // Stale-while-revalidate: serve the cached shell immediately and
-      // refresh it in the background, so offline never blocks the UI.
       const refresh = fetch(e.request)
         .then(r => {
           if (r && r.ok) {
