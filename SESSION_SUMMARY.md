@@ -46,6 +46,14 @@
   - `auth/popup-closed-by-user` handled without an error toast
   - Service worker bumped to `lift-tracker-v4`
 - **Sign-in verified working in real Chrome** (user-tested). CDP-controlled browser can't fully validate it (popups blocked by automation).
+- **Code fix v4** (committed `9e58e2a`): iOS Safari tab now uses popup sign-in; redirect only for standalone PWA (iOS Safari redirect loses its result after the OAuth round trip). SW bumped to v5.
+- **External PR merged** (`09d9bbe` + merge `068843a`, from branch `Perplexity-edits`): SW rewritten to stale-while-revalidate, `BYPASS_CACHE` list for auth/API domains, `APP_UPDATE` toast on new version. SW bumped to v6.
+- **Voice commands added** (committed `81ca480`, merged `8c3402d`, deployed):
+  - 🎤 mic button in workout header; native Web Speech API (works on iPhone Safari + Chrome), auto-restarts after browser-end
+  - Commands: bare number / "N reps" → log reps + complete set + start rest (auto-advance); "done"/"next" → complete set; "weight 135"; "rest 90"; "add set"; "next exercise"; "skip"/"stop" → clear timer; unrecognized → error flash
+  - `parseSpokenNumber()` handles words, digits, and "one thirty five" → 135
+  - Spoken confirmations via `speechSynthesis`; Settings > Voice Commands card (enable + speak toggles, Test Voice)
+  - Verified end-to-end in CDP Chrome (command routing, number parsing, all-done, stop, error paths); unit tests for parser + routing all pass
 
 ### Remaining
 - Test redirect sign-in on iPhone PWA / Safari / Firefox (redirect path — most important to confirm on the actual phone)
