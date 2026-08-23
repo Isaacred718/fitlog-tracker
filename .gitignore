@@ -1,2 +1,5 @@
 generate_icons.py
 .DS_Store
+*-firebase-config.json
+firebase-config*.json
+*.local.js
