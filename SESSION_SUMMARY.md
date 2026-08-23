@@ -98,3 +98,13 @@
 - GitHub Pages: `https://isaacred718.github.io/fitlog-tracker/`
 - Firebase Console: `https://console.firebase.google.com/project/lift-tracker-fade7/authentication/providers`
 - Google Cloud OAuth client: `https://console.cloud.google.com/apis/credentials/oauthclient/1045140412331-30reu9jtrqcvs3pv63e49f6qjuie83cs.apps.googleusercontent.com?project=lift-tracker-fade7`
+
+### iOS PWA Google sign-in fix (v2.1, lift-tracker-v7)
+- Root cause: iOS Home Screen apps (standalone) cannot use `signInWithPopup` (no popups). `signInWithRedirect` hops through `lift-tracker-fade7.firebaseapp.com`, iOS treats that as leaving the PWA, and the OAuth result opens in Safari. Safari and the Home Screen app have **isolated storage** since iOS 16.4, so a Safari login does not sign in the PWA. Firebase also stores the pending redirect in `sessionStorage`, which iOS wipes when the PWA is killed.
+- Fix:
+  1. Bake default Firebase config so a fresh Home Screen install does not need to re-enter keys (isolated localStorage).
+  2. iOS standalone uses Google OIDC (`response_type=id_token`) returning to same-origin `auth.html`, then `signInWithCredential`.
+  3. Mirror Firebase `sessionStorage` into `localStorage` as a fallback.
+  4. Service worker `lift-tracker-v7`: never cache `auth.html`; network-first for navigations.
+- **Required one-time Google Cloud step:** add Authorized redirect URI `https://isaacred718.github.io/fitlog-tracker/auth.html` on OAuth client `1045140412331-30reu9jtrqcvs3pv63e49f6qjuie83cs`.
+- After deploy: delete the old Home Screen icon and re-add the page (or force-close the PWA so SW v7 activates).

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0f0a">
+<title>Signing in…</title>
+<style>
+  html,body{margin:0;min-height:100%;background:#0a0f0a;color:#e8f5e8;
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  main{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center}
+  p{max-width:22rem;color:#8cb88c}
+  a{color:#8cf23a}
+</style>
+</head>
+<body>
+<main><p id="msg">Signing you in…</p></main>
+<script>
+(function () {
+  var msg = document.getElementById("msg");
+  function goHome() {
+    location.replace("index.html");
+  }
+  try {
+    var hash = (location.hash || "").replace(/^#/, "");
+    var q = new URLSearchParams(location.search);
+    var params = new URLSearchParams(hash);
+    var err = params.get("error") || q.get("error");
+    var idToken = params.get("id_token");
+    if (err) {
+      msg.textContent = err === "access_denied"
+        ? "Sign-in was cancelled. Returning…"
+        : "Google sign-in failed (" + err + "). Returning…";
+      setTimeout(goHome, 1400);
+      return;
+    }
+    if (idToken) {
+      localStorage.setItem("liftTrackerGoogleIdToken", idToken);
+      goHome();
+      return;
+    }
+    msg.innerHTML = "No sign-in data. <a href=\"index.html\">Back to Lift Tracker</a>";
+    setTimeout(goHome, 1200);
+  } catch (e) {
+    msg.textContent = "Sign-in error. Returning…";
+    setTimeout(goHome, 1200);
+  }
+})();
+</script>
+</body>
+</html>
