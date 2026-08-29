@@ -300,6 +300,23 @@ function saveState() {
 // ============================================================
 // FIREBASE / CLOUD SYNC
 // ============================================================
+//
+// Google sign-in branches on platform because no single Firebase method
+// works everywhere (each case below was a real bug found on that platform):
+//   - iOS Home Screen PWA (standalone): no popups, and Firebase's own
+//     signInWithRedirect hops through firebaseapp.com — iOS treats that as
+//     leaving the PWA, and Safari/the PWA have isolated storage since
+//     iOS 16.4, so the result never makes it back in. Fixed by driving
+//     Google's OIDC implicit flow directly (startIosGoogleOidc) back to
+//     auth.html on THIS origin, which hands the id_token to
+//     completeGoogleIdTokenSignIn via signInWithCredential.
+//   - Everything else (desktop, mobile Safari/Chrome in a normal tab):
+//     signInWithPopup, falling back to signInWithRedirect only if the
+//     popup is blocked.
+// installFirebaseSessionStorageMirror exists because Firebase's redirect
+// flow (used both as the desktop popup-blocked fallback and internally by
+// getRedirectResult) stores its pending-auth key in sessionStorage, which
+// iOS kills when a Home Screen app is backgrounded for the OAuth hop.
 let firebaseApp = null;
 let db = null;
 let auth = null;
@@ -409,6 +426,14 @@ function takeStoredGoogleIdToken() {
   return idToken;
 }
 
+// Shared by every sign-in path (popup, redirect, iOS OIDC) once a Firebase
+// user is available, so "mark signed in" stays in exactly one place.
+function applySignedInUser(user) {
+  currentUser = user;
+  updateSyncStatus("synced", user.displayName || user.email);
+  renderCloudUI();
+}
+
 async function completeGoogleIdTokenSignIn(idToken) {
   if (!auth || !idToken) return false;
   try {
@@ -416,11 +441,7 @@ async function completeGoogleIdTokenSignIn(idToken) {
     const result = await auth.signInWithCredential(cred);
     console.log("[Auth] ID-token sign-in:", result.user && result.user.email);
     clearAuthHandoff();
-    if (result.user) {
-      currentUser = result.user;
-      updateSyncStatus("synced", result.user.displayName || result.user.email);
-      renderCloudUI();
-    }
+    if (result.user) applySignedInUser(result.user);
     return true;
   } catch (e) {
     console.error("[Auth] ID-token sign-in failed:", e.code, e.message);
@@ -562,9 +583,7 @@ async function initFirebase(config) {
         console.log('[Auth] Redirect sign-in result:', result.user.email);
         clearAuthHandoff();
         if (!currentUser) {
-          currentUser = result.user;
-          updateSyncStatus('synced', result.user.displayName || result.user.email);
-          renderCloudUI();
+          applySignedInUser(result.user);
           syncToFirestore(state);
         }
       } else {
@@ -628,11 +647,7 @@ function signInWithGoogle() {
   }
   auth.signInWithPopup(googleProvider).then(result => {
       console.log('[Auth] Popup sign-in result:', result.user ? result.user.email : 'no user');
-      if (!currentUser && result.user) {
-        currentUser = result.user;
-        updateSyncStatus('synced', result.user.displayName || result.user.email);
-        renderCloudUI();
-      }
+      if (!currentUser && result.user) applySignedInUser(result.user);
     }).catch(e => {
       console.error('[Auth] Sign-in popup error:', e.code, e.message);
       if (e.code === 'auth/popup-blocked') {
