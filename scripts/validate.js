@@ -46,9 +46,38 @@ function checkInlineScripts(file) {
   blocks.forEach((code, i) => checkJsSyntax(`${file} inline <script> #${i + 1}`, code));
 }
 
+function checkExternalRef(htmlFile, assetFile) {
+  const html = fs.readFileSync(path.join(root, htmlFile), 'utf8');
+  if (!html.includes(assetFile)) {
+    console.error(`FAIL ${htmlFile}: does not reference ${assetFile}`);
+    failed = true;
+    return;
+  }
+  if (!fs.existsSync(path.join(root, assetFile))) {
+    console.error(`FAIL ${htmlFile} references ${assetFile}, but that file doesn't exist`);
+    failed = true;
+    return;
+  }
+  console.log(`OK   ${htmlFile} references existing ${assetFile}`);
+}
+
+function checkSwCaches(assetFile) {
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  if (!sw.includes(assetFile)) {
+    console.error(`FAIL sw.js does not precache ${assetFile} — offline users would get a broken shell`);
+    failed = true;
+    return;
+  }
+  console.log(`OK   sw.js precaches ${assetFile}`);
+}
+
 checkJson('manifest.json');
 checkJson('firebase.json');
-checkInlineScripts('index.html');
+checkExternalRef('index.html', 'app.js');
+checkExternalRef('index.html', 'styles.css');
+checkJsSyntax('app.js', fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+checkSwCaches('app.js');
+checkSwCaches('styles.css');
 checkInlineScripts('auth.html');
 checkJsSyntax('sw.js', fs.readFileSync(path.join(root, 'sw.js'), 'utf8'));
 
