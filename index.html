@@ -15,9 +15,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -506,7 +506,7 @@ a{color:var(--green);text-decoration:none}
           <div class="text-sm text-muted" id="workout-timer-display">00:00</div>
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-sm voice-btn" id="voice-btn" onclick="toggleVoice()" title="Voice commands" style="display:none">🎤</button>
+          <button class="btn btn-sm voice-btn" id="voice-btn" onclick="toggleVoice()" title="Voice commands" aria-label="Voice commands" style="display:none">🎤</button>
           <button class="btn btn-sm" style="background:#e8b830;color:#000;font-weight:600;display:none" id="nutrition-btn" onclick="showNutritionInfo()">🍽️ Food</button>
           <button class="btn btn-secondary btn-sm" onclick="finishWorkout()" id="finish-workout-btn" style="display:none">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -732,26 +732,26 @@ Incline DB Press
   </nav>
 
   <!-- Exercise Detail Modal -->
-  <div class="modal-overlay" id="exercise-detail-modal">
+  <div class="modal-overlay" id="exercise-detail-modal" role="dialog" aria-modal="true" aria-label="Exercise details">
     <div class="modal" id="exercise-detail-content"></div>
   </div>
 
   <!-- Nutrition Info Modal -->
-  <div class="modal-overlay" id="nutrition-modal">
+  <div class="modal-overlay" id="nutrition-modal" role="dialog" aria-modal="true" aria-label="Nutrition guide">
     <div class="modal" id="nutrition-content" style="max-width:400px"></div>
   </div>
 
   <!-- Template Editor Modal -->
-  <div class="modal-overlay" id="template-editor-modal">
+  <div class="modal-overlay" id="template-editor-modal" role="dialog" aria-modal="true" aria-label="Template editor">
     <div class="modal" id="template-editor-content"></div>
   </div>
 
   <!-- Add Exercise to Workout Modal -->
-  <div class="modal-overlay" id="add-exercise-modal">
+  <div class="modal-overlay" id="add-exercise-modal" role="dialog" aria-modal="true" aria-label="Add exercise">
     <div class="modal" id="add-exercise-content">
       <div class="modal-title">
         <span id="add-ex-title">Add Exercise</span>
-        <button class="icon-btn" onclick="closeModal('add-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="icon-btn" aria-label="Close" onclick="closeModal('add-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="search-box">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -762,17 +762,17 @@ Incline DB Press
   </div>
 
   <!-- Wizard Modal -->
-  <div class="modal-overlay" id="wizard-modal">
+  <div class="modal-overlay" id="wizard-modal" role="dialog" aria-modal="true" aria-label="Workout wizard">
     <div class="modal" id="wizard-content" style="max-height:90vh"></div>
   </div>
 
   <!-- Custom Exercise Modal -->
-  <div class="modal-overlay" id="custom-exercise-modal">
+  <div class="modal-overlay" id="custom-exercise-modal" role="dialog" aria-modal="true" aria-label="Add custom exercise">
     <div class="modal" id="custom-exercise-content"></div>
   </div>
 
   <!-- Confirm Dialog -->
-  <div class="confirm-overlay" id="confirm-dialog">
+  <div class="confirm-overlay" id="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
     <div class="confirm-box">
       <h3 id="confirm-title">Confirm</h3>
       <p id="confirm-message">Are you sure?</p>
@@ -784,7 +784,7 @@ Incline DB Press
   </div>
 
   <!-- Survey Modal -->
-  <div class="modal-overlay" id="survey-modal">
+  <div class="modal-overlay" id="survey-modal" role="dialog" aria-modal="true" aria-label="Profile assessment">
     <div class="modal" id="survey-modal-content" style="max-height:90vh"></div>
   </div>
 
@@ -2293,7 +2293,7 @@ function showExerciseDetail(id) {
   document.getElementById('exercise-detail-content').innerHTML = `
     <div class="modal-title">
       <span>${esc(e.name)}</span>
-      <button class="icon-btn" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="flex gap-2 mb-3">
       <span class="tag" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'}">${esc(e.muscle)}</span>
@@ -2396,7 +2396,7 @@ function renderTemplateEditor() {
   document.getElementById('template-editor-content').innerHTML = `
     <div class="modal-title">
       <span>${t.name ? 'Edit Template' : 'New Template'}</span>
-      <button class="icon-btn" onclick="closeModal('template-editor-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('template-editor-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="form-group">
       <label class="form-label">Template Name</label>
@@ -2675,7 +2675,7 @@ function renderWizard() {
       <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:4px">How many days per week?</h3>
       <p class="text-sm text-muted mb-3">Adjust based on your schedule.</p>
       <div class="flex items-center gap-3 justify-center" style="padding:20px 0">
-        <button class="btn btn-secondary" onclick="if(wizardState.days>1){wizardState.days--;renderWizard()}" ${wizardState.days<=1?'disabled':''}>-</button>
+        <button class="btn btn-secondary" aria-label="Decrease training days" onclick="if(wizardState.days>1){wizardState.days--;renderWizard()}" ${wizardState.days<=1?'disabled':''}>-</button>
         <span style="font-size:2.5rem;font-weight:800;color:var(--green);min-width:60px;text-align:center">${wizardState.days}</span>
         <button class="btn btn-secondary" onclick="if(wizardState.days<7){wizardState.days++;renderWizard()}" ${wizardState.days>=7?'disabled':''}>+</button>
       </div>
@@ -2737,7 +2737,7 @@ function renderWizard() {
   document.getElementById('wizard-content').innerHTML = `
     <div class="modal-title">
       <span>Workout Wizard</span>
-      <button class="icon-btn" onclick="closeModal('wizard-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('wizard-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     ${content}
   `;
@@ -2840,7 +2840,7 @@ function showNutritionInfo() {
   document.getElementById('nutrition-content').innerHTML = `
     <div class="modal-title">
       <span style="display:flex;align-items:center;gap:6px">🍽️ ${esc(w.name)} — Nutrition Guide</span>
-      <button class="icon-btn" onclick="closeModal('nutrition-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('nutrition-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
       <div style="padding:12px;border-radius:10px;background:linear-gradient(135deg,#1a2e1a,#0f1f0f);border:1px solid #4caf5055">
@@ -2990,8 +2990,8 @@ function renderWorkout() {
               <select class="set-type-select" style="color:${(setTypeMap[s.type]||setTypeMap.working).color};border-color:${(setTypeMap[s.type]||setTypeMap.working).color}44" onchange="changeWorkoutSetType(${ei},${si},this.value)" title="Set type">
                 ${SET_TYPES.map(st => `<option value="${st.id}" ${s.type===st.id?'selected':''}>${st.name}</option>`).join('')}
               </select>
-              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},-1)" ${si===0?'disabled':''} title="Move up">↑</button>
-              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},1)" ${si===ex.sets.length-1?'disabled':''} title="Move down">↓</button>
+              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},-1)" ${si===0?'disabled':''} title="Move up" aria-label="Move set up">↑</button>
+              <button class="set-move-btn" onclick="moveWorkoutSet(${ei},${si},1)" ${si===ex.sets.length-1?'disabled':''} title="Move down" aria-label="Move set down">↓</button>
               <button class="set-del-btn" onclick="deleteWorkoutSet(${ei},${si})" title="Delete set">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               </button>
@@ -3544,7 +3544,7 @@ function openCustomExerciseModal(onSaveCallback) {
   document.getElementById('custom-exercise-content').innerHTML = `
     <div class="modal-title">
       <span>Add Custom Exercise</span>
-      <button class="icon-btn" onclick="closeModal('custom-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('custom-exercise-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="custom-ex-form">
       <div class="form-group">
@@ -3730,7 +3730,7 @@ function viewWorkoutDetail(id) {
   document.getElementById('exercise-detail-content').innerHTML = `
     <div class="modal-title">
       <span>${w.name || 'Workout'}</span>
-      <button class="icon-btn" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="text-sm text-muted mb-3">${formatDate(w.date)}${w.duration ? ' • ' + formatTime(Math.floor(w.duration/1000)) : ''}</div>
     <div class="stat-grid mb-3">
@@ -4226,7 +4226,9 @@ if ('serviceWorker' in navigator) {
 // INIT
 // ============================================================
 loadState();
-initCloudOnLoad();
+// Firebase SDKs load with `defer` so they don't block first paint; wait for
+// them (they execute right before DOMContentLoaded) before touching `firebase`.
+document.addEventListener('DOMContentLoaded', initCloudOnLoad);
 
 // Add default templates if first run — each with nutrition advice
 if (state.templates.length === 0 && state.workouts.length === 0) {
@@ -4418,7 +4420,7 @@ function renderSurveyStep() {
   container.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <span style="font-size:0.8rem;color:var(--text3)">${surveyState.step + 1} of ${total}</span>
-      <button class="icon-btn" onclick="closeModal('survey-modal')" style="margin-right:-8px">
+      <button class="icon-btn" aria-label="Close" onclick="closeModal('survey-modal')" style="margin-right:-8px">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
