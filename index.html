@@ -3847,11 +3847,18 @@ function getHeartRateForWorkout(workout) {
 // ============================================================
 function exportWorkouts() {
   if (state.workouts.length === 0) { showToast('No workouts to export', 'error'); return; }
-  let csv = 'Date,Name,Exercises,Completed Sets,Total Volume (lbs)\n';
+  // One row per set so re-importing this file fully restores the workout (lossless round-trip).
+  let csv = 'Date,Workout Name,Duration (min),Exercise,Muscle,Set,Type,Weight,Reps,Completed\n';
+  const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
   state.workouts.forEach(w => {
-    const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2=>s2.completed).length, 0);
-    const vol = w.exercises.reduce((s,e) => s + e.sets.reduce((ss,s2) => ss + (s2.completed?(s2.actualReps||0)*(s2.actualWeight||0):0), 0), 0);
-    csv += `"${w.date}","${(w.name||'').replace(/"/g,'""')}","${w.exercises.map(e=>e.name).join('; ')}",${sets},${vol}\n`;
+    const durMin = w.duration ? Math.round(w.duration / 60000) : '';
+    w.exercises.forEach(e => {
+      e.sets.forEach((s, si) => {
+        const reps = s.actualReps ?? s.reps ?? 0;
+        const weight = s.actualWeight ?? s.weight ?? 0;
+        csv += [q(w.date), q(w.name), durMin, q(e.name), q(e.muscle), si + 1, q(s.type || 'working'), weight, reps, s.completed ? 1 : 0].join(',') + '\n';
+      });
+    });
   });
   downloadCSV(csv, 'workouts.csv');
   showToast('Workouts exported');
@@ -3955,23 +3962,52 @@ function importWorkouts(event) {
     try {
       const lines = e.target.result.split('\n').filter(l => l.trim());
       if (lines.length < 2) { showToast('CSV appears empty', 'error'); return; }
-      const header = lines[0];
-      let count = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const cols = parseCSVLine(lines[i]);
-        if (cols.length >= 3) {
-          state.workouts.push({
+      const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      const col = name => header.indexOf(name);
+      const idxDate = col('date'), idxWorkout = col('workout name'), idxDur = col('duration (min)'),
+            idxExercise = col('exercise'), idxMuscle = col('muscle'), idxType = col('type'),
+            idxWeight = col('weight'), idxReps = col('reps'), idxCompleted = col('completed');
+      const detailed = idxDate > -1 && idxWorkout > -1 && idxExercise > -1 && idxWeight > -1 && idxReps > -1;
+
+      const workouts = [];
+      if (detailed) {
+        const byKey = new Map();
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCSVLine(lines[i]);
+          if (cols.length <= Math.max(idxDate, idxWorkout, idxExercise, idxWeight, idxReps)) continue;
+          const date = cols[idxDate], name = cols[idxWorkout];
+          const key = date + ' ' + name;
+          let w = byKey.get(key);
+          if (!w) {
+            w = { id: uid(), date, name, exercises: [], duration: (idxDur > -1 && cols[idxDur]) ? Number(cols[idxDur]) * 60000 : null };
+            byKey.set(key, w); workouts.push(w);
+          }
+          const exName = cols[idxExercise];
+          let ex = w.exercises.find(x => x.name === exName);
+          if (!ex) { ex = { exerciseId: '', name: exName, muscle: idxMuscle > -1 ? (cols[idxMuscle] || '') : '', sets: [] }; w.exercises.push(ex); }
+          const weight = parseFloat(cols[idxWeight]) || 0;
+          const reps = parseInt(cols[idxReps], 10) || 0;
+          const completed = idxCompleted > -1 ? /^(1|y|yes|true)$/i.test(cols[idxCompleted]) : true;
+          ex.sets.push({ reps, weight, actualReps: reps, actualWeight: weight, rest: 90, type: (idxType > -1 && cols[idxType]) || 'working', completed });
+        }
+      } else {
+        // Legacy summary-only export: no per-set data was saved, so sets can't be reconstructed.
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCSVLine(lines[i]);
+          if (cols.length < 3) continue;
+          workouts.push({
             id: uid(), date: cols[0], name: cols[1],
             exercises: cols[2].split('; ').filter(Boolean).map(n => ({
               exerciseId: '', name: n.trim(), muscle: '',
-              sets: [{reps:10, weight:0, completed:true}]
+              sets: [{reps:0, weight:0, actualReps:0, actualWeight:0, rest:90, type:'working', completed:false}]
             })),
             duration: null
           });
-          count++;
         }
       }
-      saveState(); showToast(`${count} workouts imported`);
+      state.workouts.push(...workouts);
+      saveState();
+      showToast(detailed ? `${workouts.length} workout(s) imported` : `${workouts.length} workout(s) imported (legacy file — set detail unavailable)`);
     } catch(e) { showToast('Failed to parse CSV', 'error'); }
   };
   reader.readAsText(file);
@@ -4014,9 +4050,13 @@ function parseCSVLine(line) {
   let current = '';
   let inQuotes = false;
   for (let i = 0; i < line.length; i++) {
-    if (line[i] === '"') { inQuotes = !inQuotes; }
-    else if (line[i] === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
-    else { current += line[i]; }
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    }
+    else if (c === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else { current += c; }
   }
   result.push(current.trim());
   return result;
@@ -4077,14 +4117,36 @@ function parseWorkoutText(text) {
   let current = null;
   let currentExercise = null;
 
-  const setRegex = /^(\d+(?:\.\d+)?)\s*[x×@]\s*(\d+)$/i;
-  const setRegex2 = /^(\d+)\s*(?:reps?)?\s*(?:@|at)?\s*(\d+(?:\.\d+)?)$/i;
-  const setRegex3 = /^(\d+(?:\.\d+)?)\s*(?:lbs?|kg)?\s*[x×]\s*(\d+)$/i;
+  // "@"/"at" is the standard reps-at-weight shorthand (e.g. "5 @ 225" = 5 reps at 225 lbs) —
+  // checked separately from "x"/"×" (weight x reps) so the two conventions can't be swapped.
+  const setRegexAt = /(\d+)\s*(?:reps?)?\s*(?:@|at)\s*(\d+(?:\.\d+)?)\s*(?:lbs?|kg)?/i;
+  const setRegexX = /(\d+(?:\.\d+)?)\s*(?:lbs?|kg)?\s*[x×]\s*(\d+)\s*(?:reps?)?/i;
+  const setRegexBare = /^(\d+)\s+(\d+(?:\.\d+)?)$/;
   const dateRegex = /(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}|^\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?/i;
 
+  // Strip list/bullet/"Set N:" noise so sets embedded in real screenshot lines
+  // ("Set 1: 135 x 10", "• 3x10", "1) 10 reps @ 135") are still recognized.
+  const stripNoise = (l) => l
+    .replace(/^[•\-*•✓✔✅]\s*/, '')
+    .replace(/^set\s*\d+\s*[:.)]?\s*/i, '')
+    .replace(/^\d+[.)]\s+/, '')
+    .trim();
+
+  const matchSet = (line) => {
+    for (const candidate of [line, stripNoise(line)]) {
+      let m = candidate.match(setRegexAt);
+      if (m) return { reps: parseInt(m[1], 10), weight: parseFloat(m[2]) };
+      m = candidate.match(setRegexX);
+      if (m) return { weight: parseFloat(m[1]), reps: parseInt(m[2], 10) };
+    }
+    const m = stripNoise(line).match(setRegexBare) || line.match(setRegexBare);
+    if (m) return { reps: parseInt(m[1], 10), weight: parseFloat(m[2]) };
+    return null;
+  };
+
   for (let line of lines) {
-    const looksLikeWorkoutTitle = /(?:push|pull|legs|upper|lower|full|chest|back|shoulder|arm|day|workout)/i.test(line)
-      && !setRegex.test(line) && !setRegex2.test(line) && !setRegex3.test(line);
+    const set = matchSet(line);
+    const looksLikeWorkoutTitle = /(?:push|pull|legs|upper|lower|full|chest|back|shoulder|arm|day|workout)/i.test(line) && !set;
 
     if (looksLikeWorkoutTitle || (dateRegex.test(line) && line.length < 40)) {
       if (current && current.exercises.length) workouts.push(current);
@@ -4101,29 +4163,16 @@ function parseWorkoutText(text) {
       continue;
     }
 
-    let match = line.match(setRegex) || line.match(setRegex3);
-    let weight, reps;
-    if (match) {
-      weight = parseFloat(match[1]);
-      reps = parseInt(match[2], 10);
-    } else {
-      match = line.match(setRegex2);
-      if (match) {
-        reps = parseInt(match[1], 10);
-        weight = parseFloat(match[2]);
-      }
-    }
-
-    if (match && currentExercise) {
+    if (set && currentExercise) {
       currentExercise.sets.push({
-        reps, weight, actualReps: reps, actualWeight: weight,
+        reps: set.reps, weight: set.weight, actualReps: set.reps, actualWeight: set.weight,
         rest: 90, type: 'working', completed: true
       });
       continue;
     }
 
     if (current && line.length > 1 && line.length < 60 && !/^\d+$/.test(line)) {
-      currentExercise = { exerciseId: '', name: line, muscle: '', sets: [] };
+      currentExercise = { exerciseId: '', name: stripNoise(line), muscle: '', sets: [] };
       current.exercises.push(currentExercise);
     }
   }
