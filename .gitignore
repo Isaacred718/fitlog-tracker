@@ -3,3 +3,5 @@ generate_icons.py
 *-firebase-config.json
 firebase-config*.json
 *.local.js
+node_modules/
+app/dist/
