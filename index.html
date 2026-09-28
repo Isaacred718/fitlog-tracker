@@ -1121,6 +1121,7 @@ let db = null;
 let auth = null;
 let googleProvider = null;
 let currentUser = null;
+let firstAuthResolved = false;
 let syncInProgress = false;
 let lastSyncTime = 0;
 
@@ -1232,10 +1233,16 @@ async function completeGoogleIdTokenSignIn(idToken) {
     const result = await auth.signInWithCredential(cred);
     console.log("[Auth] ID-token sign-in:", result.user && result.user.email);
     // Round-trip that started in the home-screen app but finished here
-    // (Safari): tell the user to switch back. clearAuthHandoff() wipes the
-    // pending marker, so check freshness first.
+    // (Safari): tell the user to switch back. The home-screen app still
+    // needs the pending marker to reload on return, so preserve it —
+    // clearAuthHandoff() wipes it.
+    var pendingTs = null;
+    try { pendingTs = localStorage.getItem("liftTrackerAuthPending"); } catch (e) {}
     var showBanner = isAuthPendingFresh() && !isStandalonePwa();
     clearAuthHandoff();
+    if (showBanner && pendingTs) {
+      try { localStorage.setItem("liftTrackerAuthPending", pendingTs); } catch (e) {}
+    }
     if (showBanner) showHandoffBanner();
     if (result.user) {
       currentUser = result.user;
@@ -1312,9 +1319,17 @@ function showHandoffBanner() {
   } catch (e) {}
 }
 
+var LIFT_AUTH_RELOADED_KEY = "liftTrackerAuthReloaded";
 function maybeReloadOnReturn() {
   try {
-    if (!document.hidden && isIosStandalonePwa() && isAuthPendingFresh() && !currentUser) {
+    var t = 0;
+    try { t = +localStorage.getItem("liftTrackerAuthPending") || 0; } catch (e) {}
+    var fresh = !!t && (Date.now() - t) < LIFT_AUTH_PENDING_TTL;
+    var done = false;
+    try { done = localStorage.getItem(LIFT_AUTH_RELOADED_KEY) === String(t); } catch (e) {}
+    // One reload per handoff max: this can never loop.
+    if (!document.hidden && isIosStandalonePwa() && fresh && !done && !currentUser) {
+      try { localStorage.setItem(LIFT_AUTH_RELOADED_KEY, String(t)); } catch (e) {}
       location.reload();
     }
   } catch (e) {}
@@ -1453,7 +1468,10 @@ async function initFirebase(config) {
         console.log('[Auth] Signed in:', user.email);
         // Handoff complete: the home-screen app picked up the session, so
         // the pending marker has served its purpose.
-        if (isIosStandalonePwa()) clearAuthPending();
+        if (isIosStandalonePwa()) {
+          clearAuthPending();
+          try { localStorage.removeItem("liftTrackerAuthReloaded"); } catch (e) {}
+        }
         updateSyncStatus('synced', user.displayName || user.email);
         // Render immediately; sync runs in the background so a slow
         // Firestore read can never leave the UI stuck on "Not signed in".
@@ -1469,6 +1487,13 @@ async function initFirebase(config) {
         console.log('[Auth] Signed out');
         updateSyncStatus('offline', 'Not signed in');
         renderCloudUI();
+      }
+      if (!firstAuthResolved) {
+        firstAuthResolved = true;
+        // Load-time check too: iOS may have killed the app in the background,
+        // relaunching it fresh on return (no visibilitychange fires). Delay a
+        // beat so the SDK can restore the shared session first.
+        setTimeout(maybeReloadOnReturn, 1200);
       }
     });
     renderCloudUI();
