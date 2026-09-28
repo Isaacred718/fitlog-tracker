@@ -1231,7 +1231,12 @@ async function completeGoogleIdTokenSignIn(idToken) {
     const cred = firebase.auth.GoogleAuthProvider.credential(idToken);
     const result = await auth.signInWithCredential(cred);
     console.log("[Auth] ID-token sign-in:", result.user && result.user.email);
+    // Round-trip that started in the home-screen app but finished here
+    // (Safari): tell the user to switch back. clearAuthHandoff() wipes the
+    // pending marker, so check freshness first.
+    var showBanner = isAuthPendingFresh() && !isStandalonePwa();
     clearAuthHandoff();
+    if (showBanner) showHandoffBanner();
     if (result.user) {
       currentUser = result.user;
       updateSyncStatus("synced", result.user.displayName || result.user.email);
@@ -1266,6 +1271,53 @@ function startIosGoogleOidc() {
   console.log("[Auth] iOS PWA OIDC →", redirectUri);
   updateSyncStatus("syncing", "Opening Google…");
   window.location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+}
+
+// iOS home-screen auth handoff: the Google OIDC round-trip completes in
+// Safari (iOS bounces OAuth out of standalone web apps), so the home-screen
+// app never sees the return. The Firebase session created in Safari lives in
+// shared site data, so when the user comes back to the home-screen app it
+// reloads once to pick it up. Safari itself shows a "switch back" banner.
+var LIFT_AUTH_PENDING_TTL = 2 * 3600 * 1000; // 2 hours
+
+function isAuthPendingFresh() {
+  try {
+    var t = +localStorage.getItem("liftTrackerAuthPending");
+    return !!t && (Date.now() - t) < LIFT_AUTH_PENDING_TTL;
+  } catch (e) { return false; }
+}
+
+function clearAuthPending() {
+  try {
+    localStorage.removeItem("liftTrackerAuthPending");
+    localStorage.removeItem("liftTrackerOauthNonce");
+  } catch (e) {}
+}
+
+function showHandoffBanner() {
+  try {
+    if (document.getElementById("lift-handoff-banner") || !document.body) return;
+    var d = document.createElement("div");
+    d.id = "lift-handoff-banner";
+    d.setAttribute("style", "position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;" +
+      "background:#10241a;color:#e8f5e8;border:1px solid #8cf23a;border-radius:14px;" +
+      "padding:14px 16px;font:15px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
+      "box-shadow:0 8px 30px rgba(0,0,0,.45)");
+    d.innerHTML = "<b>Signed in \u2713</b><br><span style=\"opacity:.85\">Now switch back to your " +
+      "home-screen app \u2014 you are signed in there too, and your workouts will sync.</span>" +
+      "<br><button id=\"lift-handoff-ok\" style=\"margin-top:10px;padding:8px 18px;border-radius:10px;" +
+      "border:0;background:#8cf23a;color:#0a0f0a;font-weight:700;font-size:15px\">Got it</button>";
+    document.body.appendChild(d);
+    document.getElementById("lift-handoff-ok").addEventListener("click", function () { d.remove(); });
+  } catch (e) {}
+}
+
+function maybeReloadOnReturn() {
+  try {
+    if (!document.hidden && isIosStandalonePwa() && isAuthPendingFresh() && !currentUser) {
+      location.reload();
+    }
+  } catch (e) {}
 }
 
 function saveFirebaseConfig() {
@@ -1399,6 +1451,9 @@ async function initFirebase(config) {
       currentUser = user;
       if (user) {
         console.log('[Auth] Signed in:', user.email);
+        // Handoff complete: the home-screen app picked up the session, so
+        // the pending marker has served its purpose.
+        if (isIosStandalonePwa()) clearAuthPending();
         updateSyncStatus('synced', user.displayName || user.email);
         // Render immediately; sync runs in the background so a slow
         // Firestore read can never leave the UI stuck on "Not signed in".
@@ -4268,6 +4323,11 @@ if ('serviceWorker' in navigator) {
 // ============================================================
 loadState();
 initCloudOnLoad();
+
+// iOS home-screen sign-in handoff: reload once when returning from the
+// Safari OAuth round-trip so the new session is picked up.
+document.addEventListener('visibilitychange', maybeReloadOnReturn);
+window.addEventListener('pageshow', function (e) { if (e.persisted) maybeReloadOnReturn(); });
 
 // Add default templates if first run — each with nutrition advice
 if (state.templates.length === 0 && state.workouts.length === 0) {
