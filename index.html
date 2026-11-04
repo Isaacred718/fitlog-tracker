@@ -557,8 +557,8 @@ a{color:var(--green);text-decoration:none}
         <div class="flex flex-col gap-2">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
             <label class="text-sm" style="white-space:nowrap;font-weight:500">Body Weight (lbs)</label>
-            <input type="number" id="settings-body-weight" value="${(state.settings.bodyWeight || 180)}"
-              onchange="state.settings.bodyWeight = parseFloat(this.value) || 180; saveState(); showToast('Body weight saved')"
+            <input type="number" id="settings-body-weight" value="180"
+              onchange="saveBodyWeight(this.value)"
               style="flex:1;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:0.85rem" placeholder="180">
           </div>
           <button class="btn btn-secondary btn-block" onclick="exportWorkouts()">Export Workouts (CSV)</button>
@@ -1065,6 +1065,74 @@ function defaultState() {
 
 let state = defaultState();
 
+// Persisted state is untrusted input: it can be written by older versions,
+// interrupted syncs, imports, or another device. Coerce every collection to
+// its expected shape and every set number to a finite, non-negative value,
+// so one bad record can never poison renders, exports, or sync.
+function sanitizeId(id) {
+  const s = String(id == null ? '' : id).replace(/[^A-Za-z0-9_-]/g, '');
+  return s || uid();
+}
+function saneNum(v, max) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (!isFinite(n) || n < 0) return 0;
+  return max ? Math.min(n, max) : n;
+}
+function sanitizeSets(sets) {
+  if (!Array.isArray(sets)) return [];
+  return sets.filter(s => s && typeof s === 'object').map(s => ({
+    ...s,
+    reps: saneNum(s.reps, 9999), weight: saneNum(s.weight, 2000),
+    actualReps: s.actualReps == null ? s.actualReps : saneNum(s.actualReps, 9999),
+    actualWeight: s.actualWeight == null ? s.actualWeight : saneNum(s.actualWeight, 2000),
+    rest: saneNum(s.rest, 3600), completed: !!s.completed
+  }));
+}
+function sanitizeExercises(exs) {
+  if (!Array.isArray(exs)) return [];
+  return exs.filter(e => e && typeof e === 'object').map(e => ({
+    ...e, name: String(e.name || 'Exercise'), muscle: String(e.muscle || ''),
+    sets: sanitizeSets(e.sets)
+  }));
+}
+function sanitizeState() {
+  const d = defaultState();
+  if (!state || typeof state !== 'object' || Array.isArray(state)) state = d;
+  for (const k of ['templates', 'workouts', 'measurements', 'customExercises', 'heartRateData']) {
+    if (!Array.isArray(state[k])) state[k] = [];
+  }
+  state.workouts = state.workouts.filter(w => w && typeof w === 'object').map(w => ({
+    ...w, id: sanitizeId(w.id), name: String(w.name || 'Workout'),
+    exercises: sanitizeExercises(w.exercises),
+    duration: w.duration == null ? w.duration : saneNum(w.duration, 86400000)
+  }));
+  state.templates = state.templates.filter(t => t && typeof t === 'object').map(t => ({
+    ...t, id: sanitizeId(t.id), name: String(t.name || 'Template'), exercises: sanitizeExercises(t.exercises)
+  }));
+  state.measurements = state.measurements.filter(m => m && typeof m === 'object' && m.values && typeof m.values === 'object').map(m => {
+    const values = {};
+    for (const k in m.values) { const n = parseFloat(m.values[k]); if (isFinite(n) && n > 0) values[k] = Math.min(n, 100000); }
+    return { ...m, id: sanitizeId(m.id), values };
+  });
+  state.customExercises = state.customExercises.filter(e => e && typeof e === 'object' && e.name).map(e => ({ ...e, id: sanitizeId(e.id), name: String(e.name) }));
+  state.heartRateData = state.heartRateData.filter(s => s && typeof s === 'object' && isFinite(parseFloat(s.bpm))).map(s => ({ ...s, bpm: saneNum(s.bpm, 300) }));
+  if (!state.settings || typeof state.settings !== 'object' || Array.isArray(state.settings)) state.settings = {};
+  // Duplicate ids make deletes and cloud merges hit the wrong record.
+  for (const k of ['workouts', 'templates', 'measurements', 'customExercises']) {
+    const seen = new Set();
+    for (const r of state[k]) {
+      if (seen.has(r.id)) r.id = uid();
+      seen.add(r.id);
+    }
+  }
+  if (state.activeWorkout != null) {
+    if (typeof state.activeWorkout === 'object' && !Array.isArray(state.activeWorkout)) {
+      state.activeWorkout = { ...state.activeWorkout, exercises: sanitizeExercises(state.activeWorkout.exercises) };
+    } else state.activeWorkout = null;
+  }
+  if (state.profile != null && (typeof state.profile !== 'object' || Array.isArray(state.profile))) state.profile = null;
+}
+
 function loadState() {
   try {
     const saved = localStorage.getItem('liftTracker');
@@ -1078,17 +1146,24 @@ function loadState() {
     // Preserve the corrupt blob for recovery instead of silently losing it.
     const raw = localStorage.getItem('liftTracker');
     if (raw) {
-      try { localStorage.setItem('liftTracker_corrupt_' + Date.now(), raw); } catch(_) {}
+      // Keep only the newest corrupt backup; an unbounded series of backups
+      // fills the storage whose fullness likely caused the corruption.
+      try {
+        Object.keys(localStorage).filter(k => k.indexOf('liftTracker_corrupt_') === 0)
+          .forEach(k => localStorage.removeItem(k));
+        localStorage.setItem('liftTracker_corrupt_' + Date.now(), raw);
+      } catch(_) {}
     }
     state = defaultState();
     try { localStorage.removeItem('liftTracker'); } catch(_) {}
   }
   migrateState();
+  sanitizeState();
 }
 
 function migrateState() {
   const current = state._schemaVersion || 1;
-  if (current === SCHEMA_VERSION) return;
+  if (current === SCHEMA_VERSION) return; // shape is still validated by sanitizeState() in loadState
   if (current < 2) {
     // v1 → v2: structure is unchanged. Sync now uses per-record timestamps
     // stamped during cloud sync, so no data reshape is required here.
@@ -1103,10 +1178,19 @@ function migrateState() {
   try { localStorage.setItem('liftTracker', JSON.stringify(state)); } catch(e) {}
 }
 
+let _lastSaveErrorToast = 0;
 function saveState() {
   try {
     localStorage.setItem('liftTracker', JSON.stringify(state));
-  } catch(e) { console.error('Failed to save state', e); }
+  } catch(e) {
+    console.error('Failed to save state', e);
+    // Never let a failed write look like a saved one: storage full or
+    // blocked means the change just made is NOT persisted.
+    if (Date.now() - _lastSaveErrorToast > 30000) {
+      _lastSaveErrorToast = Date.now();
+      showToast('Could not save: device storage is full or blocked. Your last change is not stored.', 'error');
+    }
+  }
   // Push to cloud if logged in
   if (currentUser && db) {
     syncToFirestore(state);
@@ -1198,6 +1282,85 @@ function installFirebaseSessionStorageMirror() {
   } catch (e) {}
 }
 
+function decodeJwtPayload(token) {
+  try {
+    const part = String(token).split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(decodeURIComponent(escape(atob(part))));
+  } catch (e) { return null; }
+}
+
+// Client-side binding checks for a Google ID token. Firebase verifies the
+// signature server-side in signInWithCredential; these checks bind the token
+// to THIS app and to the sign-in request this device actually started
+// (nonce + state), so a token minted for another app or another flow is
+// rejected before it is ever used.
+function verifyGoogleIdToken(idToken, returnedState) {
+  const payload = decodeJwtPayload(idToken);
+  if (!payload) return "That code is not a valid Google sign-in token.";
+  if (payload.iss !== "https://accounts.google.com" && payload.iss !== "accounts.google.com") {
+    return "That token was not issued by Google.";
+  }
+  if (payload.aud !== GOOGLE_OAUTH_CLIENT_ID) {
+    return "That code was made for a different app, not Lift Tracker.";
+  }
+  if (!payload.exp || payload.exp * 1000 <= Date.now()) {
+    return "That code has expired. Start sign-in again to get a fresh one.";
+  }
+  let expectedNonce = null, expectedState = null;
+  try {
+    expectedNonce = localStorage.getItem("liftTrackerOauthNonce");
+    expectedState = localStorage.getItem("liftTrackerOauthState");
+  } catch (e) {}
+  if (expectedNonce && payload.nonce !== expectedNonce) {
+    return "That code does not match the sign-in started on this device. Start sign-in again.";
+  }
+  if (expectedState && returnedState != null && returnedState !== expectedState) {
+    return "That code does not match the sign-in started on this device. Start sign-in again.";
+  }
+  return null;
+}
+
+// A sign-in code is "LT1." + base64url(JSON {t: idToken, s: state}) as shown
+// by auth.html. A bare Google ID token (three dot-separated parts) is also
+// accepted, for codes copied straight from a token.
+function parseSignInCode(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  if (raw.indexOf("LT1.") === 0) {
+    try {
+      const b64 = raw.slice(4).replace(/-/g, "+").replace(/_/g, "/");
+      const obj = JSON.parse(decodeURIComponent(escape(atob(b64))));
+      if (obj && obj.t) return { idToken: obj.t, state: obj.s || null };
+    } catch (e) {}
+    return null;
+  }
+  if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(raw)) return { idToken: raw, state: null };
+  return null;
+}
+
+async function pasteSignInCode() {
+  const el = document.getElementById("paste-code-input");
+  const raw = el ? el.value.trim() : "";
+  if (!raw) { showToast("Paste the code from Safari first", "error"); return; }
+  const parsed = parseSignInCode(raw);
+  if (!parsed) { showToast("That does not look like a sign-in code", "error"); return; }
+  // Verify the code first: a bad code should be called bad immediately,
+  // even if the Firebase SDK is still loading, and a good code should get
+  // a grace window for the SDK instead of a "not ready" dead end.
+  const verifyError = verifyGoogleIdToken(parsed.idToken, parsed.state);
+  if (verifyError) { showToast(verifyError, "error"); return; }
+  if (!auth) {
+    const config = getFirebaseConfig();
+    if (config && config.apiKey) initFirebase(config);
+  }
+  for (let i = 0; i < 10 && !auth; i++) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (!auth) { showToast("Sign-in is not ready yet, try again in a moment", "error"); return; }
+  const ok = await completeGoogleIdTokenSignIn(parsed.idToken, parsed.state);
+  if (ok && el) el.value = "";
+}
+
 function clearAuthHandoff() {
   try {
     Object.keys(localStorage).forEach((k) => {
@@ -1205,6 +1368,7 @@ function clearAuthHandoff() {
     });
     localStorage.removeItem("liftTrackerAuthPending");
     localStorage.removeItem("liftTrackerOauthNonce");
+    localStorage.removeItem("liftTrackerOauthState");
     localStorage.removeItem("liftTrackerGoogleIdToken");
   } catch (e) {}
 }
@@ -1221,13 +1385,27 @@ function takeStoredGoogleIdToken() {
       }
     }
     if (!idToken) idToken = localStorage.getItem("liftTrackerGoogleIdToken");
-    if (idToken) localStorage.removeItem("liftTrackerGoogleIdToken");
+    // Peek only: the stored token is cleared inside completeGoogleIdTokenSignIn
+    // once an attempt has actually run. Deleting it here lost the sign-in
+    // whenever Firebase was not ready yet (slow or failed SDK load).
   } catch (e) {}
   return idToken;
 }
 
-async function completeGoogleIdTokenSignIn(idToken) {
+function clearStoredGoogleIdToken() {
+  try { localStorage.removeItem("liftTrackerGoogleIdToken"); } catch (e) {}
+}
+
+async function completeGoogleIdTokenSignIn(idToken, returnedState) {
   if (!auth || !idToken) return false;
+  const verifyError = verifyGoogleIdToken(idToken, returnedState);
+  if (verifyError) {
+    clearStoredGoogleIdToken();
+    updateSyncStatus("error", "Sign-in failed");
+    showToast(verifyError, "error");
+    renderCloudUI();
+    return false;
+  }
   try {
     const cred = firebase.auth.GoogleAuthProvider.credential(idToken);
     const result = await auth.signInWithCredential(cred);
@@ -1256,14 +1434,20 @@ async function completeGoogleIdTokenSignIn(idToken) {
     showToast("Sign in failed: " + (e.message || e), "error");
     renderCloudUI();
     return false;
+  } finally {
+    // The attempt actually ran, so the stored copy has served its purpose
+    // either way; keeping a spent or expired token would re-fail every load.
+    clearStoredGoogleIdToken();
   }
 }
 
 function startIosGoogleOidc() {
   const redirectUri = googleOidcRedirectUri();
   const nonce = (crypto.randomUUID && crypto.randomUUID()) || (String(Date.now()) + "." + Math.random());
+  const oauthState = (crypto.randomUUID && crypto.randomUUID()) || (String(Date.now()) + ".s." + Math.random());
   try {
     localStorage.setItem("liftTrackerOauthNonce", nonce);
+    localStorage.setItem("liftTrackerOauthState", oauthState);
     localStorage.setItem("liftTrackerAuthPending", String(Date.now()));
   } catch (e) {}
   const params = new URLSearchParams({
@@ -1273,6 +1457,7 @@ function startIosGoogleOidc() {
     response_mode: "fragment",
     scope: "openid email profile",
     nonce: nonce,
+    state: oauthState,
     prompt: "select_account"
   });
   console.log("[Auth] iOS PWA OIDC →", redirectUri);
@@ -1327,12 +1512,27 @@ function maybeReloadOnReturn() {
     var fresh = !!t && (Date.now() - t) < LIFT_AUTH_PENDING_TTL;
     var done = false;
     try { done = localStorage.getItem(LIFT_AUTH_RELOADED_KEY) === String(t); } catch (e) {}
+    // Never reload over a sign-in code the user is pasting in.
+    const pasteEl = document.getElementById("paste-code-input");
+    if (pasteEl && (document.activeElement === pasteEl || (pasteEl.value && pasteEl.value.trim()))) return;
     // One reload per handoff max: this can never loop.
     if (!document.hidden && isIosStandalonePwa() && fresh && !done && !currentUser) {
       try { localStorage.setItem(LIFT_AUTH_RELOADED_KEY, String(t)); } catch (e) {}
       location.reload();
     }
   } catch (e) {}
+}
+
+function saveBodyWeight(v) {
+  const n = parseFloat(v);
+  if (!isFinite(n) || n <= 0 || n > 1500) {
+    showToast('Enter a valid body weight in lbs', 'error');
+    renderCloudUI();
+    return;
+  }
+  state.settings.bodyWeight = n;
+  saveState();
+  showToast('Body weight saved');
 }
 
 function saveFirebaseConfig() {
@@ -1379,9 +1579,16 @@ function importFirebaseConfig(event) {
   reader.onload = (e) => {
     try {
       const config = JSON.parse(e.target.result);
-      if (!config.apiKey || !config.projectId) {
-        showToast('Invalid config — needs apiKey + projectId', 'error');
+      const strOk = (v, re, max) => typeof v === 'string' && v.length <= max && re.test(v);
+      if (!strOk(config.apiKey, /^AIza[\w-]{10,}$/, 128) || !strOk(config.projectId, /^[a-z][a-z0-9-]{2,29}$/, 30)) {
+        showToast('Invalid config — needs a real Firebase apiKey and projectId', 'error');
         return;
+      }
+      for (const k of ['authDomain', 'storageBucket', 'messagingSenderId', 'appId']) {
+        if (config[k] != null && typeof config[k] !== 'string') {
+          showToast('Invalid config — ' + k + ' must be text', 'error');
+          return;
+        }
       }
       document.getElementById('fb-api-key').value = config.apiKey || '';
       document.getElementById('fb-auth-domain').value = config.authDomain || '';
@@ -1390,6 +1597,13 @@ function importFirebaseConfig(event) {
       document.getElementById('fb-sender-id').value = config.messagingSenderId || '';
       document.getElementById('fb-app-id').value = config.appId || '';
       localStorage.setItem('liftTrackerFirebase', JSON.stringify(config));
+      if (firebaseApp) {
+        // A running Firebase app keeps its original config; claiming the
+        // imported one is active would be a lie. Reload to apply it.
+        showToast('Config imported. Reloading to apply it…');
+        setTimeout(() => location.reload(), 800);
+        return;
+      }
       showToast('Config imported & saved');
       initFirebase(config);
       renderCloudUI();
@@ -1505,6 +1719,19 @@ async function initFirebase(config) {
 }
 
 function signInWithGoogle() {
+  // iOS Home Screen (standalone) has no popups. Firebase signInWithRedirect
+  // also fails there: it hops through firebaseapp.com, iOS leaves the PWA,
+  // and the result lands in Safari with empty sessionStorage.
+  // Direct Google OIDC returns to auth.html on THIS origin instead, and the
+  // code it shows is pasted back here. This branch runs BEFORE the Firebase
+  // readiness check on purpose: starting the OIDC trip needs no Firebase
+  // SDK, so a slow or failed SDK load must not strand standalone users on a
+  // misleading "not configured" error. Firebase is only needed on return,
+  // where pasteSignInCode checks for it again.
+  if (isIosStandalonePwa()) {
+    openConfirm("Sign in with Google", "Google opens in Safari and shows you a sign-in code. Copy the code, switch back to this app, then tap Paste sign-in code in Settings and paste it in.", () => { startIosGoogleOidc(); });
+    return;
+  }
   if (!auth || !googleProvider) {
     const config = getFirebaseConfig();
     if (config && config.apiKey) initFirebase(config);
@@ -1514,14 +1741,6 @@ function signInWithGoogle() {
     return;
   }
   updateSyncStatus('syncing', 'Signing in…');
-  // iOS Home Screen (standalone) has no popups. Firebase signInWithRedirect
-  // also fails there: it hops through firebaseapp.com, iOS leaves the PWA,
-  // and the result lands in Safari with empty sessionStorage.
-  // Direct Google OIDC returns to auth.html on THIS origin instead.
-  if (isIosStandalonePwa()) {
-    startIosGoogleOidc();
-    return;
-  }
   auth.signInWithPopup(googleProvider).then(result => {
       console.log('[Auth] Popup sign-in result:', result.user ? result.user.email : 'no user');
       if (!currentUser && result.user) {
@@ -1619,14 +1838,33 @@ function docIdFor(collection, rec) {
   } else {
     base = (rec && rec.id) || (rec && rec.date) || uid();
   }
-  return 'd' + String(base).replace(/[^A-Za-z0-9_-]/g, '_');
+  // Sanitising alone maps distinct ids (a.b, a/b, a b) onto one document.
+  // Append a short hash of the raw id so distinct ids stay distinct.
+  const raw = String(base);
+  let h = 5381;
+  for (let i = 0; i < raw.length; i++) h = ((h << 5) + h + raw.charCodeAt(i)) >>> 0;
+  return 'd' + raw.replace(/[^A-Za-z0-9_-]/g, '_') + '_' + h.toString(36);
+}
+
+let syncQueued = false;
+let syncFlushTimer = null;
+function queueSyncRetry() {
+  syncQueued = true;
+  if (syncFlushTimer) return;
+  const wait = Math.max(60, 2000 - (Date.now() - lastSyncTime));
+  syncFlushTimer = setTimeout(() => {
+    syncFlushTimer = null;
+    if (syncQueued) { syncQueued = false; syncToFirestore(state); }
+  }, wait);
 }
 
 async function syncToFirestore(data) {
-  if (!currentUser || !db || syncInProgress) return;
+  if (!currentUser || !db) return;
+  if (syncInProgress) { queueSyncRetry(); return; }
   const now = Date.now();
-  // Debounce: skip if we synced less than 2 seconds ago.
-  if (now - lastSyncTime < 2000) return;
+  // Debounce a burst of saves into one upload, but never drop one: a save
+  // inside the window queues a trailing flush of the latest state.
+  if (now - lastSyncTime < 2000) { queueSyncRetry(); return; }
   lastSyncTime = now;
   syncInProgress = true;
   try {
@@ -1647,7 +1885,9 @@ async function syncToFirestore(data) {
         const fp = recordFingerprint(rec);
         if (colCache[id] && colCache[id]._deleted === undefined && colCache[id].fingerprint === fp) continue;
         rec._updatedAt = Date.now();
-        const payload = Object.assign({}, rec);
+        // Scrub undefined / non-finite values: one bad field rejects the
+        // entire batch and poisons every later sync.
+        const payload = JSON.parse(JSON.stringify(rec, (k, v) => (typeof v === 'number' && !isFinite(v)) ? null : v));
         payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
         await colRef.doc(id).set(payload, { merge: true });
         colCache[id] = { fingerprint: recordFingerprint(rec), _updatedAt: rec._updatedAt };
@@ -1692,6 +1932,7 @@ async function syncToFirestore(data) {
     updateSyncStatus('error', 'Sync error');
   } finally {
     syncInProgress = false;
+    if (syncQueued) { syncQueued = false; setTimeout(() => syncToFirestore(state), 60); }
   }
 }
 
@@ -1720,7 +1961,7 @@ async function syncFromFirestore(user) {
     for (const collection of SYNC_COLLECTIONS) {
       const snap = await userRef.collection(collection).get();
       const cloudById = {};
-      snap.forEach(d => { cloudById[d.id] = d.data(); });
+      snap.forEach(d => { const data = d.data(); cloudById[docIdFor(collection, data)] = data; });
 
       const localArr = Array.isArray(state[collection]) ? state[collection] : [];
       const localById = {};
@@ -1731,8 +1972,24 @@ async function syncFromFirestore(user) {
       for (const id in cloudById) {
         const cloud = cloudById[id];
         const local = localById[id];
+        if (!local) {
+          let clearedAt = 0;
+          try { clearedAt = +localStorage.getItem('liftTrackerClearedAt') || 0; } catch (e) {}
+          if (clearedAt && (cloud._updatedAt || 0) <= clearedAt) {
+            colCache[id] = { _deleted: true, _updatedAt: Date.now(), fingerprint: '__deleted__' };
+            continue;
+          }
+        }
         const cloudT = cloud._updatedAt || 0;
-        const localT = local ? (local._updatedAt || 0) : -1;
+        let localT = local ? (local._updatedAt || 0) : -1;
+        // A record whose content differs from what we last uploaded was
+        // edited locally since then (edits stamp no timestamp of their
+        // own). Its edit is newer than the last sync by construction, so
+        // it must not be overwritten by the previously uploaded copy.
+        if (local && colCache[id] && !colCache[id]._deleted &&
+            colCache[id].fingerprint !== recordFingerprint(local)) {
+          localT = Math.max(localT, cloudT + 1);
+        }
         if (cloud._deleted) {
           if (localT >= (cloud._deletedAt || cloudT)) continue; // local wins
           if (local) delete localById[id];
@@ -1793,7 +2050,8 @@ async function syncFromFirestore(user) {
     }
 
     if (changed) {
-      localStorage.setItem('liftTracker', JSON.stringify(state));
+      sanitizeState();
+      saveState();
       showToast('Cloud data synced to this device');
       renderCloudUI();
     }
@@ -1817,23 +2075,32 @@ async function migrateLegacyData(uid, meta) {
         : new Date(legacy.updatedAt).getTime();
     }
     const localTime = state._localUpdatedAt || 0;
-    if (cloudTime > localTime + 5000) {
+    const adopted = cloudTime > localTime + 5000;
+    if (adopted) {
       // Cloud blob is meaningfully newer — replace local with it.
       const clean = Object.assign({}, legacy);
       delete clean.updatedAt;
       state = Object.assign({}, state, clean);
-      localStorage.setItem('liftTracker', JSON.stringify(state));
+      sanitizeState();
+      saveState();
     }
-    // Drop the legacy blob so the doc becomes a clean meta doc.
-    await db.collection('users').doc(uid).update({
-      data: firebase.firestore.FieldValue.delete()
-    }).catch(() => {});
+    // Drop the legacy blob so the doc becomes a clean meta doc, but only
+    // when it was adopted or local data is genuinely newer. Inside the
+    // 5-second window the two are indistinguishable (clock skew), and
+    // deleting then would destroy the only copy of the cloud data.
+    if (adopted || cloudTime <= localTime) {
+      await db.collection('users').doc(uid).update({
+        data: firebase.firestore.FieldValue.delete()
+      }).catch(() => {});
+    }
   } catch(e) {
     console.error('Legacy migration error:', e);
   }
 }
 
 function renderCloudUI() {
+  const bwInput = document.getElementById('settings-body-weight');
+  if (bwInput) bwInput.value = state.settings.bodyWeight || 180;
   const config = getFirebaseConfig();
   const authArea = document.getElementById('cloud-auth-area');
   const configArea = document.getElementById('cloud-config-area');
@@ -1850,8 +2117,8 @@ function renderCloudUI() {
           ${(currentUser.displayName || currentUser.email || '?')[0].toUpperCase()}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:0.85rem;font-weight:600;color:var(--text)">${currentUser.displayName || ''}</div>
-          <div style="font-size:0.75rem;color:var(--text3)">${currentUser.email}</div>
+          <div style="font-size:0.85rem;font-weight:600;color:var(--text)">${escHtml(currentUser.displayName || '')}</div>
+          <div style="font-size:0.75rem;color:var(--text3)">${escHtml(currentUser.email || '')}</div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="signOutUser()" style="color:var(--orange);flex-shrink:0">Sign Out</button>
       </div>
@@ -1876,14 +2143,22 @@ function renderCloudUI() {
   } else {
     userEl.textContent = 'Not connected';
     const iosNote = isIosStandalonePwa()
-      ? `<p class="cs-note">iPhone Home Screen sign-in jumps to Google and returns here. If Google shows <em>redirect_uri_mismatch</em>, add this exact URL under Google Cloud → APIs & Credentials → your Web client → Authorized redirect URIs:<br><code style="color:var(--green);word-break:break-all">${googleOidcRedirectUri()}</code></p>`
+      ? `<p class="cs-note">Home Screen sign-in: tap Sign in with Google, copy the code Google shows you in Safari, come back here and paste it below. (If Google instead shows <em>redirect_uri_mismatch</em>, add this exact URL under Google Cloud → APIs & Credentials → your Web client → Authorized redirect URIs:<br><code style="color:var(--green);word-break:break-all">${googleOidcRedirectUri()}</code>)</p>`
       : (isIosDevice() ? `<p class="cs-note">On iPhone the Home Screen app has its own Google login, separate from Safari. Open Lift Tracker from the icon and tap Sign in there.</p>` : "");
+    const pasteBlock = isIosStandalonePwa()
+      ? `<div style="margin-top:12px">
+          <label class="form-label" for="paste-code-input">Have a sign-in code?</label>
+          <textarea class="form-input" id="paste-code-input" rows="3" placeholder="Paste the code from Safari here" style="width:100%;box-sizing:border-box;word-break:break-all"></textarea>
+          <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="pasteSignInCode()">Paste sign-in code</button>
+        </div>`
+      : "";
     authArea.innerHTML = `
       <button class="google-btn" onclick="signInWithGoogle()">
         <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="m6.306 14.691 6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
         Sign in with Google
       </button>
       ${iosNote}
+      ${pasteBlock}
     `;
     authStatus.innerHTML = '';
     if (config) {
@@ -1953,7 +2228,12 @@ saveState = function() {
 // ============================================================
 // UTILITIES
 // ============================================================
-function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2,5); }
+let _uidCounter = 0;
+function uid() {
+  _uidCounter = (_uidCounter + 1) % 46656;
+  return Date.now().toString(36) + _uidCounter.toString(36).padStart(3, '0') +
+    Math.random().toString(36).substr(2, 5) + Math.random().toString(36).substr(2, 5);
+}
 
 // Completed sets store the actually logged load in actualReps/actualWeight;
 // planned weight/reps are only a fallback for older records. Volume must
@@ -1962,10 +2242,21 @@ function setVolume(s) {
   if (!s || !s.completed) return 0;
   // Nullish coalescing: only missing fields (legacy records) fall back to
   // planned values. A real 0 stays 0 — `||` would wrongly resurrect the
-  // planned weight/reps for a set logged at zero.
-  const reps = s.actualReps ?? s.reps ?? 0;
-  const weight = s.actualWeight ?? s.weight ?? 0;
-  return reps * weight;
+  // planned weight/reps for a set logged at zero. An empty string is a
+  // missing value too, and non-numeric or negative operands contribute
+  // nothing instead of poisoning the total.
+  const pick = (a, b) => (a === null || a === undefined || a === '') ? b : a;
+  const num = v => { const n = Number(v); return isFinite(n) && n > 0 ? n : 0; };
+  const reps = num(pick(s.actualReps, s.reps));
+  const weight = num(pick(s.actualWeight, s.weight));
+  return Math.round(reps * weight * 100) / 100;
+}
+
+function formatVolume(v) {
+  v = Number(v) || 0;
+  if (v <= 0) return '0';
+  if (v < 1000) return String(Math.round(v));
+  return (v / 1000).toFixed(1) + 'k';
 }
 
 function workoutVolume(w) {
@@ -1973,15 +2264,34 @@ function workoutVolume(w) {
   return w.exercises.reduce((es, e) => es + (Array.isArray(e.sets) ? e.sets.reduce((ss, s2) => ss + setVolume(s2), 0) : 0), 0);
 }
 
+// The local calendar day a date belongs to. Date-only strings name a day
+// directly; instants are converted in the viewer's timezone. Mixing the
+// two (UTC prefixes, UTC parsing of date-only strings) put workouts and
+// measurements on the wrong day in the Americas.
+function localDateKey(d) {
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const dt = new Date(d);
+  if (!isFinite(dt.getTime())) return '';
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
 function formatDate(d) {
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const p = d.split('-');
+    return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+  }
   const date = new Date(d);
   return date.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
 }
 
 function formatTime(s) {
-  const m = Math.floor(s / 60);
+  s = Math.max(0, Math.floor(Number(s) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  return `${m}:${sec.toString().padStart(2,'0')}`;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+    : `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
 function showToast(msg, type='success') {
@@ -1997,39 +2307,85 @@ function showToast(msg, type='success') {
 // NAVIGATION
 // ============================================================
 function showView(name) {
+  // Render before committing the navigation: a render that throws used to
+  // leave the new view active but blank with the nav already switched.
+  try {
+    if (name === 'dashboard') renderDashboard();
+    if (name === 'exercises') renderExercises();
+    if (name === 'templates') renderTemplates();
+    if (name === 'measurements') renderMeasurements();
+    if (name === 'history') renderHistory();
+    if (name === 'workout') renderWorkout();
+    if (name === 'profile') renderProfile();
+    if (name === 'settings') { renderCloudUI(); renderVoiceSettings(); }
+  } catch (e) {
+    console.error('Render failed for view', name, e);
+    showToast('Could not open that view', 'error');
+    return;
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.view === name);
   });
   window.scrollTo(0, 0);
-  if (name === 'dashboard') renderDashboard();
-  if (name === 'exercises') renderExercises();
-  if (name === 'templates') renderTemplates();
-  if (name === 'measurements') renderMeasurements();
-  if (name === 'history') renderHistory();
-  if (name === 'workout') renderWorkout();
-  if (name === 'profile') renderProfile();
-  if (name === 'settings') { renderCloudUI(); renderVoiceSettings(); }
 }
 
 // ============================================================
 // CONFIRM DIALOG
 // ============================================================
 let confirmCallback = null;
+const confirmQueue = [];
 function openConfirm(title, message, cb) {
+  // Single-slot dialogs silently replaced a pending destructive confirm
+  // when a second one arrived (e.g. the rest-timer prompt). Queue instead:
+  // every confirm the user was asked about gets its own moment.
+  if (document.getElementById('confirm-dialog').classList.contains('open')) {
+    confirmQueue.push({ title, message, cb });
+    return;
+  }
+  showConfirm(title, message, cb);
+}
+function showConfirm(title, message, cb) {
   document.getElementById('confirm-title').textContent = title;
   document.getElementById('confirm-message').textContent = message;
   document.getElementById('confirm-dialog').classList.add('open');
   confirmCallback = cb;
-  document.getElementById('confirm-ok-btn').onclick = () => { closeConfirm(); confirmCallback(); };
+  document.getElementById('confirm-ok-btn').onclick = () => {
+    const run = confirmCallback;
+    confirmCallback = null;
+    closeConfirm();
+    if (run) run();
+  };
 }
-function closeConfirm() { document.getElementById('confirm-dialog').classList.remove('open'); }
+function closeConfirm() {
+  document.getElementById('confirm-dialog').classList.remove('open');
+  // Closing without OK (Cancel / backdrop) disarms the callback for good.
+  confirmCallback = null;
+  const next = confirmQueue.shift();
+  if (next) showConfirm(next.title, next.message, next.cb);
+}
 
 function confirmClearData() {
   openConfirm('Clear All Data', 'This will delete all workouts, templates, and measurements. This cannot be undone.', () => {
+    // Tombstone every record the sync cache knows about, or the next
+    // download would resurrect the cleared data from the cloud.
+    try {
+      const cache = loadSyncCache();
+      const nowTs = Date.now();
+      for (const col of SYNC_COLLECTIONS) {
+        const byId = cache.collections[col] || (cache.collections[col] = {});
+        const ids = new Set(Object.keys(byId));
+        (state[col] || []).forEach(r => ids.add(docIdFor(col, r)));
+        ids.forEach(id => { byId[id] = { _deleted: true, _updatedAt: nowTs, fingerprint: '__deleted__' }; });
+      }
+      saveSyncCache(cache);
+      localStorage.setItem('liftTrackerClearedAt', String(nowTs));
+    } catch (e) {}
     state.templates = []; state.workouts = []; state.measurements = []; state.activeWorkout = null;
+    stopWorkoutClocks();
     saveState(); showView('dashboard'); showToast('All data cleared');
+    if (currentUser && db) syncToFirestore(state);
   });
 }
 
@@ -2038,8 +2394,13 @@ function confirmClearData() {
 // ============================================================
 function renderDashboard() {
   const now = new Date();
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
-  const weekWorkouts = state.workouts.filter(w => new Date(w.date) >= weekStart);
+  // Monday-Sunday, the same window the calendar grid shows, and closed:
+  // workouts dated after Sunday are not "This Week".
+  const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7)); monday.setHours(0,0,0,0);
+  const weekStartKey = localDateKey(monday);
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const weekEndKey = localDateKey(sunday);
+  const weekWorkouts = state.workouts.filter(w => { const k = localDateKey(w.date); return k >= weekStartKey && k <= weekEndKey; });
   const totalSets = state.workouts.reduce((sum, w) => sum + w.exercises.reduce((s, e) => s + e.sets.filter(s2 => s2.completed).length, 0), 0);
   const totalVolume = state.workouts.reduce((sum, w) => sum + workoutVolume(w), 0);
   const latestWeight = state.measurements.length > 0 ? state.measurements[state.measurements.length - 1].values.weight : null;
@@ -2047,7 +2408,7 @@ function renderDashboard() {
   document.getElementById('dashboard-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${weekWorkouts.length}</div><div class="stat-label">This Week</div></div>
     <div class="stat-card"><div class="stat-value">${totalSets}</div><div class="stat-label">Total Sets</div></div>
-    <div class="stat-card"><div class="stat-value">${(totalVolume/1000).toFixed(1)}k</div><div class="stat-label">Volume (lbs)</div></div>
+    <div class="stat-card"><div class="stat-value">${formatVolume(totalVolume)}</div><div class="stat-label">Volume (lbs)</div></div>
     <div class="stat-card"><div class="stat-value">${latestWeight ? latestWeight : '—'}</div><div class="stat-label">Body Weight</div></div>
   `;
 
@@ -2064,7 +2425,7 @@ function renderDashboard() {
       const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
       return `<div class="history-item" style="cursor:pointer" onclick="viewWorkoutDetail('${w.id}')">
         <div class="hi-date">${formatDate(w.date)}</div>
-        <div class="hi-title">${w.name || 'Workout'}</div>
+        <div class="hi-title">${escHtml(w.name || 'Workout')}</div>
         <div class="hi-stats">
           <span>${w.exercises.length} exercises</span>
           <span>${sets} sets</span>
@@ -2085,7 +2446,7 @@ function renderDashboard() {
       <div class="dash-active-bar" onclick="showView('workout')">
         <div class="dab-pulse"></div>
         <div class="dab-info">
-          <div class="dab-name">${aw.name || 'Workout'} in progress</div>
+          <div class="dab-name">${escHtml(aw.name || 'Workout')} in progress</div>
           <div class="dab-time">${mins}:${String(secs).padStart(2,'0')} &middot; ${completedSets} sets done</div>
         </div>
         <div class="dab-arrow">
@@ -2156,7 +2517,7 @@ function renderCalendar() {
   // Index workouts by date
   const workoutsByDate = {};
   state.workouts.forEach(w => {
-    const d = w.date.substring(0, 10);
+    const d = localDateKey(w.date);
     if (!workoutsByDate[d]) workoutsByDate[d] = [];
     workoutsByDate[d].push(w);
   });
@@ -2202,18 +2563,20 @@ function renderCalendar() {
     const dObj = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
     const dateLabel = dObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
     if (dw.length > 0) {
-      const w = dw[0];
-      const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
-      const vol = workoutVolume(w);
-      detailHtml = `<div class="cal-day-detail">
-        <div class="cdd-date">${dateLabel}</div>
-        <div class="cdd-title">${w.name || 'Workout'}</div>
+      // Every workout that day gets a block; showing only the first made
+      // the rest unreachable from the calendar.
+      detailHtml = `<div class="cal-day-detail"><div class="cdd-date">${dateLabel}</div>` + dw.map(w => {
+        const sets = w.exercises.reduce((s,e) => s + e.sets.filter(s2 => s2.completed).length, 0);
+        const vol = workoutVolume(w);
+        return `<div style="margin-top:10px">
+        <div class="cdd-title">${escHtml(w.name || 'Workout')}</div>
         <div class="cdd-exercises">${w.exercises.length} exercises &middot; ${sets} sets &middot; ${vol.toLocaleString()} lbs volume</div>
         <button class="cdd-btn view" onclick="viewWorkoutDetail('${w.id}')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           View Workout
         </button>
-      </div>`;
+        </div>`;
+      }).join('') + `</div>`;
     } else {
       detailHtml = `<div class="cal-day-detail">
         <div class="cdd-date">${dateLabel}</div>
@@ -2254,9 +2617,12 @@ function selectCalendarDate(dateStr) {
 }
 
 function logWorkoutForDate(dateStr) {
+  // The selected calendar date used to be silently dropped. It now rides
+  // along and becomes the date of the next workout started.
+  pendingWorkoutDate = (dateStr && importDateOk(dateStr)) ? String(dateStr).slice(0, 10) : null;
   if (state.templates.length > 0) {
     showView('templates');
-    showToast('Select a template to start');
+    showToast(pendingWorkoutDate ? 'Select a template, it will be logged for ' + pendingWorkoutDate : 'Select a template to start');
   } else {
     openTemplateEditor();
   }
@@ -2276,7 +2642,7 @@ function buildUpcomingSchedule(days, workoutsByDate) {
   }
 
   // Count days since a recent reference point (last 30 days of workouts)
-  const recentDates = state.workouts.map(w => w.date.substring(0, 10)).sort().reverse();
+  const recentDates = state.workouts.map(w => localDateKey(w.date)).sort().reverse();
   const lastWorkoutDate = recentDates.length > 0 ? new Date(recentDates[0] + 'T00:00:00') : null;
 
   for (let i = 1; i <= days; i++) {
@@ -2349,8 +2715,8 @@ function filterExercises() {
     <div class="exercise-item" onclick="showExerciseDetail('${e.id}')">
       <div class="ex-icon" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'}">${e.custom?'✏️':(MUSCLE_EMOJIS[e.muscle]||'🏋️')}</div>
       <div class="ex-info">
-        <div class="ex-name">${e.name}${e.custom?' <span style="font-size:0.65rem;color:var(--orange);font-weight:600">CUSTOM</span>':''}</div>
-        <div class="ex-meta"><span>${e.muscle}</span><span>•</span><span>${e.equipment}</span></div>
+        <div class="ex-name">${escHtml(e.name)}${e.custom?' <span style="font-size:0.65rem;color:var(--orange);font-weight:600">CUSTOM</span>':''}</div>
+        <div class="ex-meta"><span>${escHtml(e.muscle)}</span><span>•</span><span>${escHtml(e.equipment)}</span></div>
       </div>
       <div class="ex-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
@@ -2361,15 +2727,15 @@ function showExerciseDetail(id) {
   const e = getAllExercises().find(x => x.id === id);
   if (!e) return;
   const ytQuery = encodeURIComponent(e.name + ' exercise form tutorial');
-  const tipsHtml = (e.tips && e.tips.length) ? e.tips.map(t => `<li style="font-size:0.85rem;color:var(--text);margin-bottom:6px">${t}</li>`).join('') : '<li style="font-size:0.85rem;color:var(--text3)">No form tips available for this exercise.</li>';
+  const tipsHtml = (e.tips && e.tips.length) ? e.tips.map(t => `<li style="font-size:0.85rem;color:var(--text);margin-bottom:6px">${escHtml(t)}</li>`).join('') : '<li style="font-size:0.85rem;color:var(--text3)">No form tips available for this exercise.</li>';
   document.getElementById('exercise-detail-content').innerHTML = `
     <div class="modal-title">
-      <span>${e.name}</span>
+      <span>${escHtml(e.name)}</span>
       <button class="icon-btn" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="flex gap-2 mb-3">
-      <span class="tag" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'}">${e.muscle}</span>
-      <span class="tag tag-blue">${e.equipment}</span>
+      <span class="tag" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'}">${escHtml(e.muscle)}</span>
+      <span class="tag tag-blue">${escHtml(e.equipment)}</span>
       ${e.custom?'<span class="tag" style="background:var(--orange)22;color:var(--orange)">Custom</span>':''}
     </div>
     <a class="video-btn" href="https://www.youtube.com/results?search_query=${ytQuery}" target="_blank" rel="noopener">
@@ -2380,7 +2746,7 @@ function showExerciseDetail(id) {
     <ol style="padding-left:18px;margin-bottom:16px">${tipsHtml}</ol>
     ${e.proTip ? `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
       <div style="font-size:0.75rem;font-weight:600;color:var(--green);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">Pro Tip</div>
-      <div style="font-size:0.85rem;color:var(--text)">${e.proTip}</div>
+      <div style="font-size:0.85rem;color:var(--text)">${escHtml(e.proTip)}</div>
     </div>` : ''}
     <div class="flex gap-2 mt-4">
       <button class="btn btn-primary" style="flex:1" onclick="addExerciseToWorkout('${e.id}');closeModal('exercise-detail-modal')">
@@ -2408,13 +2774,13 @@ function renderTemplates() {
   }
   document.getElementById('template-list').innerHTML = state.templates.map(t => `
     <div class="template-card">
-      <div class="tc-name">${t.name}</div>
+      <div class="tc-name">${escHtml(t.name)}</div>
       <div class="tc-meta">
         <span>${t.exercises.length} exercise${t.exercises.length!==1?'s':''}</span>
         <span>${t.exercises.reduce((s,e)=>s+e.sets.length,0)} sets</span>
       </div>
       <div class="tc-exercises">
-        ${t.exercises.slice(0,6).map(e => `<span class="tc-ex">${e.name}</span>`).join('')}
+        ${t.exercises.slice(0,6).map(e => `<span class="tc-ex">${escHtml(e.name)}</span>`).join('')}
         ${t.exercises.length > 6 ? `<span class="tc-ex">+${t.exercises.length-6} more</span>` : ''}
       </div>
       <div class="tc-actions">
@@ -2459,6 +2825,7 @@ function openTemplateEditor(templateId) {
   } else {
     editingTemplate = {id: uid(), name: 'New Template', exercises: []};
   }
+  editingTemplateSnapshot = JSON.stringify(editingTemplate);
   renderTemplateEditor();
   openModal('template-editor-modal');
 }
@@ -2518,7 +2885,7 @@ function renderTemplateExercises() {
       <div class="card superset-card ${isGiantSet ? 'giant-set-card' : ''}" style="border-color:${barColor || 'var(--border)'}">
         ${barHtml}
         <div class="flex justify-between items-center mb-2">
-          <div class="fw-600 text-sm">${ex.name}</div>
+          <div class="fw-600 text-sm">${escHtml(ex.name)}</div>
           <div class="flex gap-2">
             ${canGiantSet ? `<button class="superset-link-btn ${isGiantSet?'active':''}" onclick="toggleGiantSet(${i})" title="Link/Unlink Giant Set (3 exercises)">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -2537,9 +2904,9 @@ function renderTemplateExercises() {
         ${ex.sets.map((s, si) => `
           <div class="set-row">
             <div class="set-num">${si+1}</div>
-            <input class="set-input" type="number" value="${s.reps||''}" placeholder="Reps" oninput="editingTemplate.exercises[${i}].sets[${si}].reps=parseInt(this.value)||0">
-            <input class="set-input" type="number" value="${s.weight||''}" placeholder="lbs" oninput="editingTemplate.exercises[${i}].sets[${si}].weight=parseFloat(this.value)||0">
-            <input class="set-input" type="number" value="${s.rest||''}" placeholder="s" oninput="editingTemplate.exercises[${i}].sets[${si}].rest=parseInt(this.value)||0">
+            <input class="set-input" type="number" value="${s.reps||''}" placeholder="Reps" oninput="editingTemplate.exercises[${i}].sets[${si}].reps=Math.max(0,parseInt(this.value)||0)">
+            <input class="set-input" type="number" value="${s.weight||''}" placeholder="lbs" oninput="editingTemplate.exercises[${i}].sets[${si}].weight=Math.max(0,parseFloat(this.value)||0)">
+            <input class="set-input" type="number" value="${s.rest||''}" placeholder="s" oninput="editingTemplate.exercises[${i}].sets[${si}].rest=Math.max(0,parseInt(this.value)||0)">
             <select class="form-select" style="padding:6px 24px 6px 6px;font-size:0.7rem;width:auto;min-width:70px" onchange="editingTemplate.exercises[${i}].sets[${si}].type=this.value">
               ${SET_TYPES.map(st => `<option value="${st.id}" ${s.type===st.id?'selected':''}>${st.name}</option>`).join('')}
             </select>
@@ -2655,6 +3022,7 @@ function removeTemplateExercise(i) {
 function moveTemplateExercise(i, dir) {
   const j = i + dir;
   const arr = editingTemplate.exercises;
+  if (i < 0 || j < 0 || i >= arr.length || j >= arr.length) return;
   [arr[i], arr[j]] = [arr[j], arr[i]];
   renderTemplateExercises();
 }
@@ -2666,6 +3034,7 @@ function saveTemplate() {
   if (existing >= 0) state.templates[existing] = editingTemplate;
   else state.templates.push(editingTemplate);
   saveState();
+  editingTemplateSnapshot = null;
   closeModal('template-editor-modal');
   renderTemplates();
   showToast('Template saved');
@@ -2686,8 +3055,8 @@ function openAddExerciseModal(callback, title) {
       <div class="exercise-item" onclick="window._addExCallback(${JSON.stringify({id:e.id,name:e.name,muscle:e.muscle}).replace(/"/g,'&quot;')});closeModal('add-exercise-modal')">
         <div class="ex-icon" style="background:${MUSCLE_COLORS[e.muscle]||'var(--green)'}22;color:${MUSCLE_COLORS[e.muscle]||'var(--green)'};font-size:1rem">${MUSCLE_EMOJIS[e.muscle]||'🏋️'}</div>
         <div class="ex-info">
-          <div class="ex-name">${e.name}</div>
-          <div class="ex-meta"><span>${e.muscle}</span><span>•</span><span>${e.equipment}</span></div>
+          <div class="ex-name">${escHtml(e.name)}</div>
+          <div class="ex-meta"><span>${escHtml(e.muscle)}</span><span>•</span><span>${escHtml(e.equipment)}</span></div>
         </div>
       </div>
     `).join('') + `
@@ -2875,14 +3244,32 @@ function generateWizardTemplate() {
 // ============================================================
 // ACTIVE WORKOUT
 // ============================================================
+let pendingWorkoutDate = null;
+function guardReplaceActiveWorkout(cb) {
+  const aw = state.activeWorkout;
+  const hasProgress = aw && aw.exercises && aw.exercises.length > 0;
+  if (hasProgress) {
+    openConfirm('Workout in progress', 'Starting a new workout discards the one in progress, including any sets already logged. Continue?', cb);
+  } else cb();
+}
+function pendingWorkoutDateISO() {
+  if (!pendingWorkoutDate) return new Date().toISOString();
+  const d = new Date(pendingWorkoutDate + 'T12:00:00');
+  pendingWorkoutDate = null;
+  return isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+}
+
 function startWorkoutFromTemplate(templateId) {
   const t = state.templates.find(x => x.id === templateId);
   if (!t) return;
+  guardReplaceActiveWorkout(() => { doStartWorkoutFromTemplate(t); });
+}
+function doStartWorkoutFromTemplate(t) {
   state.activeWorkout = {
     id: uid(),
     templateId: t.id,
     name: t.name,
-    date: new Date().toISOString(),
+    date: pendingWorkoutDateISO(),
     startTime: Date.now(),
     nutrition: t.nutrition || null,
     exercises: t.exercises.map(e => ({
@@ -2911,7 +3298,7 @@ function showNutritionInfo() {
   if (!w || !w.nutrition) return;
   document.getElementById('nutrition-content').innerHTML = `
     <div class="modal-title">
-      <span style="display:flex;align-items:center;gap:6px">🍽️ ${w.name} — Nutrition Guide</span>
+      <span style="display:flex;align-items:center;gap:6px">🍽️ ${escHtml(w.name)} — Nutrition Guide</span>
       <button class="icon-btn" onclick="closeModal('nutrition-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div style="margin-top:12px;display:flex;flex-direction:column;gap:12px">
@@ -2920,14 +3307,14 @@ function showNutritionInfo() {
           <span style="font-size:1.1rem">🏃</span>
           <span style="font-weight:600;color:#4caf50;font-size:0.9rem">PRE-WORKOUT — Eat this before:</span>
         </div>
-        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${w.nutrition.pre}</div>
+        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${escHtml(w.nutrition.pre)}</div>
       </div>
       <div style="padding:12px;border-radius:10px;background:linear-gradient(135deg,#2e1a1a,#1f0f0f);border:1px solid #ff3b5c55">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
           <span style="font-size:1.1rem">🏁</span>
           <span style="font-weight:600;color:#ff3b5c;font-size:0.9rem">POST-WORKOUT — Eat this after:</span>
         </div>
-        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${w.nutrition.post}</div>
+        <div style="font-size:0.85rem;color:var(--text2);line-height:1.5">${escHtml(w.nutrition.post)}</div>
       </div>
       <div style="padding:10px;border-radius:10px;background:var(--card);border:1px solid var(--border);text-align:center;font-size:0.8rem;color:var(--text2)">
         💧 Don't forget: 16-24 oz of water during your workout. Hydration is not optional.
@@ -2938,13 +3325,15 @@ function showNutritionInfo() {
 }
 
 function startEmptyWorkout() {
-  state.activeWorkout = {
-    id: uid(), templateId: null, name: 'Workout',
-    date: new Date().toISOString(), startTime: Date.now(),
-    exercises: []
-  };
-  saveState();
-  showView('workout');
+  guardReplaceActiveWorkout(() => {
+    state.activeWorkout = {
+      id: uid(), templateId: null, name: 'Workout',
+      date: pendingWorkoutDateISO(), startTime: Date.now(),
+      exercises: []
+    };
+    saveState();
+    showView('workout');
+  });
 }
 
 function addExerciseToWorkout(exerciseId) {
@@ -2980,9 +3369,14 @@ function addExerciseToWorkout(exerciseId) {
 }
 
 let workoutTimerInterval = null;
+function stopWorkoutClocks() {
+  if (workoutTimerInterval) { clearInterval(workoutTimerInterval); workoutTimerInterval = null; }
+  skipTimer();
+}
 function renderWorkout() {
   const w = state.activeWorkout;
   if (!w) {
+    if (workoutTimerInterval) { clearInterval(workoutTimerInterval); workoutTimerInterval = null; }
     document.getElementById('workout-title').textContent = 'No Active Workout';
     document.getElementById('workout-timer-display').textContent = '';
     document.getElementById('voice-btn').style.display = 'none';
@@ -3038,8 +3432,8 @@ function renderWorkout() {
       ${barHtml}
       <div class="workout-ex-header">
         <div>
-          <div class="workout-ex-name">${ex.name}</div>
-          <div class="text-xs text-muted">${ex.muscle}</div>
+          <div class="workout-ex-name">${escHtml(ex.name)}</div>
+          <div class="text-xs text-muted">${escHtml(ex.muscle)}</div>
         </div>
         <div class="flex gap-2">
           <button class="icon-btn" onclick="removeWorkoutExercise(${ei})" title="Remove"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -3080,9 +3474,19 @@ function renderWorkout() {
   `}).join('');
 }
 
+function clampSetValue(field, val) {
+  const n = parseFloat(val);
+  if (!isFinite(n)) return 0;
+  if (field === 'actualReps' || field === 'reps') return Math.min(9999, Math.max(0, Math.round(n)));
+  if (field === 'actualWeight' || field === 'weight') return Math.min(2000, Math.max(0, n));
+  if (field === 'rest') return Math.min(3600, Math.max(0, Math.round(n)));
+  return n;
+}
 function updateWorkoutSet(ei, si, field, val) {
   if (!state.activeWorkout) return;
-  state.activeWorkout.exercises[ei].sets[si][field] = parseFloat(val) || 0;
+  const set = state.activeWorkout.exercises[ei] && state.activeWorkout.exercises[ei].sets[si];
+  if (!set) return;
+  set[field] = clampSetValue(field, val);
   saveState();
 }
 
@@ -3093,11 +3497,13 @@ function toggleWorkoutSet(ei, si) {
   set.completed = !set.completed;
   saveState();
   renderWorkout();
+  if (!set.completed && timerInterval) skipTimer();
   if (set.completed && set.rest > 0) {
     startRestTimer(set.rest);
     const ex = state.activeWorkout.exercises[ei];
     const isLastSet = si === ex.sets.length - 1;
     if (isLastSet) {
+      if (lastSetPromptTimeout) { clearTimeout(lastSetPromptTimeout); lastSetPromptTimeout = null; }
       lastSetPromptTimeout = setTimeout(() => {
         if (timerInterval) {
           openConfirm('Rest Timer', 'Stop the timer?', () => { skipTimer(); });
@@ -3111,8 +3517,8 @@ function addSetToWorkout(ei, typeId) {
   if (!state.activeWorkout) return;
   const last = state.activeWorkout.exercises[ei].sets[state.activeWorkout.exercises[ei].sets.length - 1];
   state.activeWorkout.exercises[ei].sets.push({
-    reps: last?.reps || 10, weight: last?.weight || 0, rest: last?.rest || 60,
-    type: typeId, actualReps: last?.actualReps || 10, actualWeight: last?.actualWeight || 0, completed: false
+    reps: last?.reps ?? 10, weight: last?.weight ?? 0, rest: last?.rest ?? 60,
+    type: typeId, actualReps: last?.actualReps ?? last?.reps ?? 10, actualWeight: last?.actualWeight ?? last?.weight ?? 0, completed: false
   });
   saveState(); renderWorkout();
 }
@@ -3140,7 +3546,7 @@ function deleteWorkoutSet(ei, si) {
   const ex = state.activeWorkout.exercises[ei];
   if (!ex || !ex.sets?.[si]) return;
   if (ex.sets.length <= 1) {
-    openConfirm('Delete Set', `This is the only set for ${ex.name}. Delete the whole exercise?`, () => removeWorkoutExercise(ei));
+    openConfirm('Delete Set', `This is the only set for ${escHtml(ex.name)}. Delete the whole exercise?`, () => removeWorkoutExercise(ei));
     return;
   }
   openConfirm('Delete Set', 'Delete this set?', () => {
@@ -3162,14 +3568,18 @@ function finishWorkout() {
   if (completedSets === 0) {
     openConfirm('Discard Workout', 'No sets completed. Discard this workout?', () => {
       state.activeWorkout = null;
+      stopWorkoutClocks();
       saveState(); showView('dashboard');
     });
     return;
   }
   w.endTime = Date.now();
-  w.duration = w.endTime - w.startTime;
+  // Cap at 12 hours: a workout left open overnight is not 8+ hours of
+  // lifting, and the raw wall clock used to inflate calories with it.
+  w.duration = Math.min(12 * 3600000, Math.max(0, w.endTime - (w.startTime || w.endTime)));
   state.workouts.push(JSON.parse(JSON.stringify(w)));
   state.activeWorkout = null;
+  stopWorkoutClocks();
   saveState();
   if (voiceListening) voiceStop();
   showView('dashboard');
@@ -3187,8 +3597,15 @@ const CIRCUMFERENCE = 2 * Math.PI * 100;
 
 function startRestTimer(seconds) {
   if (lastSetPromptTimeout) { clearTimeout(lastSetPromptTimeout); lastSetPromptTimeout = null; }
-  timerTotal = seconds;
-  timerRemaining = seconds;
+  // Always clear the previous interval: overwriting the handle without
+  // clearing leaks it, and the leaked interval then ticks the shared
+  // countdown at double speed and kills later timers early.
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  seconds = Math.round(Number(seconds));
+  if (!isFinite(seconds) || seconds <= 0) { skipTimer(); return; }
+  timerTotal = Math.min(seconds, 5999);
+  timerRemaining = timerTotal;
+  try { localStorage.setItem('liftTrackerRestEnd', String(Date.now() + timerTotal * 1000)); } catch (e) {}
   document.getElementById('timer-overlay').classList.add('active');
   updateTimerDisplay();
   timerInterval = setInterval(() => {
@@ -3200,19 +3617,30 @@ function startRestTimer(seconds) {
 
 function updateTimerDisplay() {
   document.getElementById('timer-time').textContent = formatTime(Math.max(0, timerRemaining));
-  const progress = 1 - (timerRemaining / timerTotal);
+  const progress = timerTotal > 0 ? 1 - (timerRemaining / timerTotal) : 1;
   document.getElementById('timer-progress').setAttribute('stroke-dashoffset', CIRCUMFERENCE * progress);
 }
 
 function skipTimer() {
+  try { localStorage.removeItem('liftTrackerRestEnd'); } catch (e) {}
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = null;
   if (lastSetPromptTimeout) { clearTimeout(lastSetPromptTimeout); lastSetPromptTimeout = null; }
   document.getElementById('timer-overlay').classList.remove('active');
 }
 
-function timerAdd(sec) { timerRemaining += sec; timerTotal += sec; updateTimerDisplay(); }
-function timerSubtract(sec) { timerRemaining = Math.max(1, timerRemaining - sec); timerTotal = Math.max(timerTotal, timerRemaining); updateTimerDisplay(); }
+function timerAdd(sec) {
+  // Cap at 99:59: an uncapped +30s button can trap the app behind the
+  // full-screen timer overlay for hours.
+  timerRemaining = Math.min(5999, timerRemaining + sec);
+  timerTotal = Math.min(5999, Math.max(timerTotal, timerRemaining));
+  updateTimerDisplay();
+}
+function timerSubtract(sec) {
+  timerRemaining -= sec;
+  if (timerRemaining <= 0) { skipTimer(); return; }
+  updateTimerDisplay();
+}
 
 // ============================================================
 // VOICE COMMANDS (set / rep logging)
@@ -3370,8 +3798,22 @@ function testVoice() {
 
 function parseSpokenNumber(text) {
   const wordMap = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,hundred:100,thousand:1000};
-  const tokens = String(text || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return null;
+  const rawTokens = String(text || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!rawTokens.length) return null;
+  // Decimals: "225.5" and "two point five" are decimal numbers, not two
+  // integers to be joined or added (225.5 used to become 2255 reps).
+  const decMatch = String(text || '').match(/(\d+)\s*\.\s*(\d+)/);
+  if (decMatch) return parseFloat(decMatch[1] + '.' + decMatch[2]);
+  const pointIdx = rawTokens.indexOf('point');
+  if (pointIdx > 0) {
+    const intPart = parseSpokenNumber(rawTokens.slice(0, pointIdx).join(' '));
+    const fracTokens = rawTokens.slice(pointIdx + 1);
+    const fracDigits = fracTokens.map(tok => /^\d$/.test(tok) ? tok : (wordMap[tok] !== undefined && wordMap[tok] < 10 ? String(wordMap[tok]) : null));
+    if (intPart !== null && fracDigits.length && fracDigits.every(d => d !== null)) {
+      return parseFloat(intPart + '.' + fracDigits.join(''));
+    }
+  }
+  const tokens = rawTokens;
   const digitTokens = tokens.filter(t => /^\d+$/.test(t));
   if (digitTokens.length) {
     if (tokens.every(t => /^\d+$/.test(t)) && tokens.length <= 4) return parseInt(tokens.join(''), 10);
@@ -3424,12 +3866,14 @@ function scrollToExercise(ei) {
 }
 
 function handleVoiceCommand(raw) {
-  const t = String(raw || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Keep a decimal point that sits between digits ("225.5"); stripping it
+  // used to split the number into two integers the parser then joined.
+  const t = String(raw || '').toLowerCase().replace(/(\d)\.(\d)/g, '$1.$2').replace(/[^a-z0-9.\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return;
   console.log('[Voice] Command:', t);
 
   // Timer control
-  if (timerInterval && /\b(skip|stop|dismiss|clear|done with rest)\b/.test(t)) {
+  if (timerInterval && /\b(skip|stop|dismiss|clear|done|done with rest)\b/.test(t)) {
     skipTimer();
     voiceFlash('Timer skipped');
     speakConfirm('Timer skipped');
@@ -3470,11 +3914,30 @@ function handleVoiceCommand(raw) {
 
   // Rest timer
   if (/\brest\b/.test(t)) {
-    const n = parseSpokenNumber(t);
-    if (n) {
-      startRestTimer(n);
-      voiceFlash('Rest ' + n + 's');
-      speakConfirm('Rest ' + n + ' seconds');
+    // "rest one minute" is 60 seconds, not 1: units used to be dropped.
+    let n = null;
+    const minPart = t.match(/([a-z0-9. ]+?)\s*minutes?\b/);
+    if (minPart) {
+      const mv = parseSpokenNumber(minPart[1].replace(/^.*\brest\b/, '').trim());
+      if (mv !== null) {
+        n = mv * 60;
+        const after = t.slice(t.indexOf('minute') + 6).replace(/^\s*s\b/, '');
+        const tv = parseSpokenNumber(after);
+        if (tv !== null && tv > 0 && tv < 120) n += tv;
+      }
+    }
+    if (n === null) n = parseSpokenNumber(t);
+    if (n !== null) {
+      if (n === 0) {
+        skipTimer();
+        voiceFlash('Timer skipped');
+        speakConfirm('Timer skipped');
+        return;
+      }
+      const secs = Math.min(3600, Math.max(1, Math.round(n)));
+      startRestTimer(secs);
+      voiceFlash('Rest ' + secs + 's');
+      speakConfirm('Rest ' + secs + ' seconds');
       return;
     }
   }
@@ -3484,7 +3947,7 @@ function handleVoiceCommand(raw) {
     const n = parseSpokenNumber(t);
     const pos = findVoicePosition();
     if (n !== null && pos) {
-      updateWorkoutSet(pos.ei, pos.si, 'actualWeight', n);
+      updateWorkoutSet(pos.ei, pos.si, 'actualWeight', Math.min(2000, Math.max(0, n)));
       renderWorkout();
       voiceFlash('Weight ' + n);
       speakConfirm(n + ' pounds');
@@ -3493,7 +3956,7 @@ function handleVoiceCommand(raw) {
   }
 
   // Complete current set
-  if (/\b(done|complete|completed|finished|finish|got it|good)\b|\bnext\b/.test(t)) {
+  if (/\b(done|complete|completed|finished|finish)\b|\bnext\b/.test(t) || t === 'good' || t === 'got it') {
     const pos = findVoicePosition();
     if (!pos) {
       voiceFlash('Workout complete!');
@@ -3517,7 +3980,7 @@ function handleVoiceCommand(raw) {
       return;
     }
     const ex = w.exercises[pos.ei];
-    updateWorkoutSet(pos.ei, pos.si, 'actualReps', n);
+    updateWorkoutSet(pos.ei, pos.si, 'actualReps', Math.min(999, Math.max(0, Math.round(n))));
     toggleWorkoutSet(pos.ei, pos.si);
     voiceFlash(ex.name + ' — Set ' + (pos.si + 1) + ': ' + n + ' reps');
     speakConfirm('Set ' + (pos.si + 1) + ', ' + n + ' reps');
@@ -3531,7 +3994,7 @@ function handleVoiceCommand(raw) {
 // MEASUREMENTS
 // ============================================================
 function renderMeasurements() {
-  document.getElementById('measurement-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('measurement-date').value = localDateKey(new Date());
   document.getElementById('measurement-fields').innerHTML = MEASUREMENT_FIELDS.map(f => `
     <div class="measurement-row">
       <span class="measurement-label">${f.name}</span>
@@ -3546,8 +4009,10 @@ function renderMeasurements() {
   if (history.length === 0) {
     document.getElementById('measurement-history').innerHTML = `<p class="text-sm text-muted text-center" style="padding:20px">No measurements logged yet.</p>`;
   } else {
+    const byDateDesc = [...state.measurements].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     document.getElementById('measurement-history').innerHTML = history.map((m, idx) => {
-      const prev = idx < history.length - 1 ? history[idx + 1] : null;
+      const sortedIdx = byDateDesc.indexOf(m);
+      const prev = sortedIdx >= 0 && sortedIdx < byDateDesc.length - 1 ? byDateDesc[sortedIdx + 1] : null;
       return `
       <div class="card">
         <div class="flex justify-between items-center mb-2">
@@ -3555,7 +4020,7 @@ function renderMeasurements() {
           <button class="icon-btn" style="color:var(--red)" onclick="deleteMeasurement('${m.id}')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          ${MEASUREMENT_FIELDS.filter(f => m.values[f.id]).map(f => {
+          ${MEASUREMENT_FIELDS.filter(f => m.values[f.id] != null && m.values[f.id] !== '').map(f => {
             const trend = getMeasurementTrend(f.id, m, prev);
             return `<div class="measurement-field-row">
               <span class="text-xs text-muted">${f.name}</span>
@@ -3572,13 +4037,15 @@ function renderMeasurements() {
 }
 
 // Trend direction: lower is better for weight/bodyFat/waist; higher is better for everything else
-const LOWER_IS_BETTER = ['weight', 'bodyFat', 'waist'];
+const LOWER_IS_BETTER = ['weight', 'bodyFat', 'waist', 'hips'];
 function getMeasurementTrend(fieldId, current, previous) {
-  if (!previous || !previous.values[fieldId] || !current.values[fieldId]) return '';
-  const curr = current.values[fieldId];
-  const prev = previous.values[fieldId];
+  if (!previous || previous.values[fieldId] == null || current.values[fieldId] == null) return '';
+  const curr = Number(current.values[fieldId]);
+  const prev = Number(previous.values[fieldId]);
+  if (!isFinite(curr) || !isFinite(prev)) return '';
   const diff = curr - prev;
-  if (diff === 0) return '<span class="trend-badge flat">= 0</span>';
+  // A change too small to display at one decimal is flat, not an arrow.
+  if (Math.abs(diff) < 0.05) return '<span class="trend-badge flat">= 0</span>';
   const isGood = LOWER_IS_BETTER.includes(fieldId) ? diff < 0 : diff > 0;
   const arrow = diff > 0 ? '↑' : '↓';
   const sign = diff > 0 ? '+' : '';
@@ -3780,7 +4247,7 @@ function renderHistory() {
     const hr = getHeartRateForWorkout(w);
     return `<div class="history-item" onclick="viewWorkoutDetail('${w.id}')" style="cursor:pointer">
       <div class="hi-date">${formatDate(w.date)}</div>
-      <div class="hi-title">${w.name || 'Workout'}</div>
+      <div class="hi-title">${escHtml(w.name || 'Workout')}</div>
       <div class="hi-stats">
         <span>${w.exercises.length} exercises</span>
         <span>${sets} sets</span>
@@ -3788,7 +4255,7 @@ function renderHistory() {
         ${dur ? `<span>${formatTime(dur)}</span>` : ''}
         ${hr ? `<span style="color:#ff3b5c">♥ ${hr.avg} bpm</span>` : ''}
       </div>
-      <div class="hi-exercises">${w.exercises.map(e => e.name).join(', ')}</div>
+      <div class="hi-exercises">${w.exercises.map(e => escHtml(e.name)).join(', ')}</div>
     </div>`;
   }).join('');
 }
@@ -3801,14 +4268,14 @@ function viewWorkoutDetail(id) {
   const calories = estimateCalories(w.exercises, w.duration ? Math.floor(w.duration / 1000) : 0);
   document.getElementById('exercise-detail-content').innerHTML = `
     <div class="modal-title">
-      <span>${w.name || 'Workout'}</span>
+      <span>${escHtml(w.name || 'Workout')}</span>
       <button class="icon-btn" onclick="closeModal('exercise-detail-modal')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="text-sm text-muted mb-3">${formatDate(w.date)}${w.duration ? ' • ' + formatTime(Math.floor(w.duration/1000)) : ''}</div>
     <div class="stat-grid mb-3">
       <div class="stat-card"><div class="stat-value">${w.exercises.length}</div><div class="stat-label">Exercises</div></div>
       <div class="stat-card"><div class="stat-value">${w.exercises.reduce((s,e)=>s+e.sets.filter(s2=>s2.completed).length,0)}</div><div class="stat-label">Sets</div></div>
-      <div class="stat-card"><div class="stat-value" style="font-size:1.2rem">${(v/1000).toFixed(1)}k</div><div class="stat-label">Volume</div></div>
+      <div class="stat-card"><div class="stat-value" style="font-size:1.2rem">${formatVolume(v)}</div><div class="stat-label">Volume</div></div>
       <div class="stat-card"><div class="stat-value">${calories}</div><div class="stat-label">Est. Calories</div></div>
     </div>
     ${hr ? `
@@ -3836,8 +4303,8 @@ function viewWorkoutDetail(id) {
         <span style="font-size:0.85rem;font-weight:600;color:#4caf50">Nutrition Guide</span>
       </div>
       <div style="font-size:0.78rem;color:var(--text2);line-height:1.5">
-        <div><b style="color:#4caf50">🏃 Pre:</b> ${w.nutrition.pre}</div>
-        <div style="margin-top:6px"><b style="color:#ff3b5c">🏁 Post:</b> ${w.nutrition.post}</div>
+        <div><b style="color:#4caf50">🏃 Pre:</b> ${escHtml(w.nutrition.pre)}</div>
+        <div style="margin-top:6px"><b style="color:#ff3b5c">🏁 Post:</b> ${escHtml(w.nutrition.post)}</div>
       </div>
     </div>` : ''}
     ${w.exercises.map((e, ei) => {
@@ -3856,11 +4323,11 @@ function viewWorkoutDetail(id) {
       return `
       ${supersetLabel}
       <div class="mb-2" style="${barColor ? 'border-left:' + (isGiantSet ? '3px dashed ' : '3px solid ') + barColor + ';padding-left:8px;margin-left:4px' : ''}">
-        <div class="fw-600 text-sm mb-2">${e.name} <span class="text-muted text-xs">${e.muscle}</span></div>
+        <div class="fw-600 text-sm mb-2">${escHtml(e.name)} <span class="text-muted text-xs">${escHtml(e.muscle)}</span></div>
         ${e.sets.map((s, si) => `
           <div class="flex justify-between text-xs" style="padding:4px 0;border-bottom:1px solid var(--border);${s.completed?'':'opacity:0.4'}">
             <span class="text-muted">Set ${si+1}</span>
-            <span>${s.actualReps||0} reps × ${s.actualWeight||0} lbs</span>
+            <span>${(s.actualReps ?? s.reps) || 0} reps × ${(s.actualWeight ?? s.weight) || 0} lbs</span>
             <span>${s.completed ? '✓' : '—'}</span>
           </div>
         `).join('')}
@@ -3884,6 +4351,7 @@ function deleteWorkout(id) {
 function importHeartRateData(event) {
   const file = event.target.files[0];
   if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10 MB)', 'error'); event.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -3891,12 +4359,19 @@ function importHeartRateData(event) {
       if (!data.heartRateSamples || !Array.isArray(data.heartRateSamples)) {
         showToast('Invalid heart rate file format', 'error'); return;
       }
-      // Merge with existing data, dedupe by timestamp
-      const existing = new Map((state.heartRateData || []).map(s => [s.date, s]));
-      data.heartRateSamples.forEach(s => existing.set(s.date, s));
+      // Merge with existing data, dedupe by instant (equivalent timestamps
+      // in different string formats are the same sample).
+      const valid = data.heartRateSamples.filter(s => {
+        if (!s || typeof s !== 'object') return false;
+        const bpm = parseFloat(s.bpm);
+        const t = Date.parse(s.date);
+        return isFinite(bpm) && bpm >= 20 && bpm <= 250 && isFinite(t);
+      }).slice(0, 100000).map(s => ({ date: new Date(s.date).toISOString(), bpm: parseFloat(s.bpm) }));
+      const existing = new Map((state.heartRateData || []).map(s => [new Date(s.date).toISOString(), s]));
+      valid.forEach(s => existing.set(s.date, s));
       state.heartRateData = [...existing.values()].sort((a,b) => new Date(a.date) - new Date(b.date));
       saveState();
-      showToast(`Imported ${data.heartRateSamples.length} heart rate samples`);
+      showToast(`Imported ${valid.length} heart rate samples${valid.length < data.heartRateSamples.length ? ' (invalid entries skipped)' : ''}`);
       renderHistory();
     } catch(err) { showToast('Failed to parse heart rate file', 'error'); }
   };
@@ -3909,10 +4384,10 @@ function getHeartRateForWorkout(workout) {
   const end = workout.duration ? start + workout.duration : start + 3600000;
   const samples = state.heartRateData.filter(s => {
     const t = new Date(s.date).getTime();
-    return t >= start && t <= end && s.bpm > 0;
+    return t >= start && t <= end && Number(s.bpm) > 0;
   });
   if (samples.length === 0) return null;
-  const bpms = samples.map(s => s.bpm);
+  const bpms = samples.map(s => Number(s.bpm)).filter(n => isFinite(n) && n > 0);
   return {
     avg: Math.round(bpms.reduce((a,b) => a+b, 0) / bpms.length),
     min: Math.min(...bpms),
@@ -3929,7 +4404,13 @@ function exportWorkouts() {
   if (state.workouts.length === 0) { showToast('No workouts to export', 'error'); return; }
   // One row per set so re-importing this file fully restores the workout (lossless round-trip).
   let csv = 'Date,Workout Name,Duration (min),Exercise,Muscle,Set,Type,Weight,Reps,Completed\n';
-  const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  // Quote for CSV and neutralise spreadsheet formulas: a cell starting with
+  // = + - @ (or a tab/CR before one) is executed by Excel/Sheets/Numbers.
+  const q = v => {
+    let s = String(v ?? '').replace(/"/g, '""');
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s}"`;
+  };
   state.workouts.forEach(w => {
     const durMin = w.duration ? Math.round(w.duration / 60000) : '';
     w.exercises.forEach(e => {
@@ -3948,13 +4429,17 @@ function exportWorkouts() {
 // Compound lifts get higher METs; isolation exercises lower
 const MET_VALUES = {
   'Chest': 5.0, 'Back': 5.0, 'Legs': 6.0, 'Shoulders': 4.5,
-  'Arms': 4.0, 'Core': 4.0, 'Traps': 4.5, 'Full Body': 6.0, 'default': 5.0
+  'Arms': 4.0, 'Biceps': 4.0, 'Triceps': 4.0, 'Glutes': 6.0,
+  'Core': 4.0, 'Traps': 4.5, 'Full Body': 6.0, 'Cardio': 7.0, 'default': 5.0
 };
 
 function estimateCalories(exercises, durationSec) {
-  // Use body weight from settings (default 180 lbs / 81.6 kg)
-  const weightKg = (state.settings.bodyWeight || 180) * 0.453592;
-  const durationHr = durationSec / 3600;
+  // Use body weight from settings (default 180 lbs / 81.6 kg). A stored
+  // zero, negative, or non-numeric weight falls back to the default
+  // instead of producing zero or negative calories.
+  const bw = parseFloat(state.settings.bodyWeight);
+  const weightKg = (isFinite(bw) && bw > 0 ? bw : 180) * 0.453592;
+  const durationHr = (isFinite(durationSec) && durationSec > 0 ? durationSec : 0) / 3600;
   // Calculate weighted average MET based on completed sets per muscle group
   let totalMetTime = 0;
   let totalSets = 0;
@@ -3962,12 +4447,15 @@ function estimateCalories(exercises, durationSec) {
     const completedSets = ex.sets.filter(s => s.completed);
     const met = MET_VALUES[ex.muscle] || MET_VALUES['default'];
     // Weight compound exercises higher (heavier sets = more effort)
-    const avgWeight = completedSets.reduce((s, set) => s + (set.actualWeight ?? set.weight ?? 0), 0) / (completedSets.length || 1);
+    const avgWeight = completedSets.reduce((s, set) => { const n = Number(set.actualWeight ?? set.weight ?? 0); return s + (isFinite(n) && n > 0 ? n : 0); }, 0) / (completedSets.length || 1);
     const weightMultiplier = avgWeight > 100 ? 1.15 : avgWeight > 50 ? 1.0 : 0.85;
     totalMetTime += met * weightMultiplier * completedSets.length;
     totalSets += completedSets.length;
   });
-  const avgMet = totalSets > 0 ? totalMetTime / totalSets : 5.0;
+  // No completed sets means no work was done: zero calories, not a
+  // default MET multiplied by the full duration.
+  if (totalSets === 0) return 0;
+  const avgMet = totalMetTime / totalSets;
   // Calories = MET × body weight (kg) × duration (hours)
   return Math.round(avgMet * weightKg * durationHr);
 }
@@ -3978,7 +4466,7 @@ function exportForAppleHealth() {
     const completedSets = w.exercises.reduce((s,e) => s + e.sets.filter(s2=>s2.completed).length, 0);
     const totalVolume = w.exercises.reduce((s,e) => s + e.sets.reduce((ss,s2) => ss + setVolume(s2), 0), 0);
     const start = w.date || new Date().toISOString();
-    const durationSec = w.duration ? Math.floor(w.duration / 1000) : completedSets * 90;
+    const durationSec = (w.duration !== null && w.duration !== undefined) ? Math.floor(w.duration / 1000) : completedSets * 90;
     const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
     const caloriesBurned = estimateCalories(w.exercises, durationSec);
     const muscles = [...new Set(w.exercises.map(e => e.muscle))];
@@ -4015,11 +4503,16 @@ function exportForAppleHealth() {
 function exportMeasurements() {
   if (state.measurements.length === 0) { showToast('No measurements to export', 'error'); return; }
   const fields = MEASUREMENT_FIELDS.map(f => f.name);
+  const q = v => {
+    let s = String(v ?? '').replace(/"/g, '""');
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s}"`;
+  };
   let csv = 'Date,' + fields.join(',') + '\n';
   state.measurements.forEach(m => {
-    csv += `"${m.date}"` + fields.map((_, i) => {
+    csv += q(m.date) + fields.map((_, i) => {
       const v = m.values[MEASUREMENT_FIELDS[i].id];
-      return v !== undefined ? `,${v}` : ',';
+      return v !== undefined && isFinite(v) ? `,${v}` : ',';
     }).join('') + '\n';
   });
   downloadCSV(csv, 'measurements.csv');
@@ -4034,9 +4527,27 @@ function downloadCSV(csv, filename) {
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
+function importNumber(v, max) {
+  // Strict: a cell like "135abc" or "1,234.5" is not a number. parseFloat
+  // would silently keep the numeric prefix and store the wrong load.
+  const n = Number(String(v == null ? '' : v).trim());
+  if (!isFinite(n) || n < 0) return 0;
+  return Math.min(n, max);
+}
+function importDateOk(s) {
+  if (!s || typeof s !== 'string') return false;
+  return isFinite(Date.parse(s));
+}
+function workoutImportKey(w) {
+  const sets = (w.exercises || []).reduce((n, e) => n + (e.sets ? e.sets.length : 0), 0);
+  const first = w.exercises && w.exercises[0] ? w.exercises[0].name : '';
+  return String(w.date || '').slice(0, 10) + '|' + String(w.name || '').toLowerCase() + '|' + sets + '|' + String(first).toLowerCase();
+}
+
 function importWorkouts(event) {
   const file = event.target.files[0];
   if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10 MB)', 'error'); event.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -4056,6 +4567,7 @@ function importWorkouts(event) {
           const cols = parseCSVLine(lines[i]);
           if (cols.length <= Math.max(idxDate, idxWorkout, idxExercise, idxWeight, idxReps)) continue;
           const date = cols[idxDate], name = cols[idxWorkout];
+          if (!importDateOk(date) || !name) continue;
           const key = date + ' ' + name;
           let w = byKey.get(key);
           if (!w) {
@@ -4065,9 +4577,9 @@ function importWorkouts(event) {
           const exName = cols[idxExercise];
           let ex = w.exercises.find(x => x.name === exName);
           if (!ex) { ex = { exerciseId: '', name: exName, muscle: idxMuscle > -1 ? (cols[idxMuscle] || '') : '', sets: [] }; w.exercises.push(ex); }
-          const weight = parseFloat(cols[idxWeight]) || 0;
-          const reps = parseInt(cols[idxReps], 10) || 0;
-          const completed = idxCompleted > -1 ? /^(1|y|yes|true)$/i.test(cols[idxCompleted]) : true;
+          const weight = importNumber(cols[idxWeight], 2000);
+          const reps = Math.round(importNumber(cols[idxReps], 9999));
+          const completed = idxCompleted > -1 ? /^(1|y|yes|true|done|complete|completed|x)$/i.test(String(cols[idxCompleted]).trim()) : true;
           ex.sets.push({ reps, weight, actualReps: reps, actualWeight: weight, rest: 90, type: (idxType > -1 && cols[idxType]) || 'working', completed });
         }
       } else {
@@ -4075,6 +4587,7 @@ function importWorkouts(event) {
         for (let i = 1; i < lines.length; i++) {
           const cols = parseCSVLine(lines[i]);
           if (cols.length < 3) continue;
+          if (!importDateOk(cols[0]) || !cols[1]) continue;
           workouts.push({
             id: uid(), date: cols[0], name: cols[1],
             exercises: cols[2].split('; ').filter(Boolean).map(n => ({
@@ -4085,9 +4598,18 @@ function importWorkouts(event) {
           });
         }
       }
-      state.workouts.push(...workouts);
+      const seenKeys = new Set(state.workouts.map(workoutImportKey));
+      const fresh = [];
+      let dupes = 0;
+      for (const w of workouts) {
+        const k = workoutImportKey(w);
+        if (seenKeys.has(k)) { dupes++; continue; }
+        seenKeys.add(k); fresh.push(w);
+      }
+      state.workouts.push(...fresh);
       saveState();
-      showToast(detailed ? `${workouts.length} workout(s) imported` : `${workouts.length} workout(s) imported (legacy file — set detail unavailable)`);
+      const base = detailed ? `${fresh.length} workout(s) imported` : `${fresh.length} workout(s) imported (legacy file — set detail unavailable)`;
+      showToast(dupes ? base + `, ${dupes} duplicate(s) skipped` : base);
     } catch(e) { showToast('Failed to parse CSV', 'error'); }
   };
   reader.readAsText(file);
@@ -4097,20 +4619,31 @@ function importWorkouts(event) {
 function importMeasurements(event) {
   const file = event.target.files[0];
   if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10 MB)', 'error'); event.target.value = ''; return; }
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       const lines = e.target.result.split('\n').filter(l => l.trim());
       if (lines.length < 2) { showToast('CSV appears empty', 'error'); return; }
-      const header = parseCSVLine(lines[0]);
+      const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      // Map columns by header name when the header names the fields; only
+      // fall back to position for a header that matches nothing.
+      const colField = header.map((h, j) => {
+        if (j === 0) return null;
+        const f = MEASUREMENT_FIELDS.find(f => f.name.toLowerCase() === h || f.id.toLowerCase() === h);
+        return f ? f.id : null;
+      });
+      const headerAware = colField.some(x => x);
       let count = 0;
       for (let i = 1; i < lines.length; i++) {
         const cols = parseCSVLine(lines[i]);
-        if (cols.length >= 2) {
+        if (cols.length >= 2 && importDateOk(cols[0])) {
           const values = {};
           for (let j = 1; j < cols.length && j <= MEASUREMENT_FIELDS.length; j++) {
-            const v = parseFloat(cols[j]);
-            if (!isNaN(v) && v > 0) values[MEASUREMENT_FIELDS[j-1].id] = v;
+            const fid = headerAware ? colField[j] : MEASUREMENT_FIELDS[j-1].id;
+            if (!fid) continue;
+            const v = Number(String(cols[j]).trim());
+            if (isFinite(v) && v > 0) values[fid] = Math.min(v, 100000);
           }
           if (Object.keys(values).length > 0) {
             state.measurements.push({id: uid(), date: cols[0], values});
@@ -4191,6 +4724,12 @@ function parseScreenshotText() {
   showToast('Found ' + parsedScreenshotWorkouts.length + ' workout(s)');
 }
 
+// Weights in screenshots may be kilograms; the app stores pounds.
+function kgToLb(w, contextText) {
+  if (/\bkg\b/i.test(contextText || '')) return Math.round(w * 2.20462 * 10) / 10;
+  return w;
+}
+
 function parseWorkoutText(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const workouts = [];
@@ -4215,9 +4754,9 @@ function parseWorkoutText(text) {
   const matchSet = (line) => {
     for (const candidate of [line, stripNoise(line)]) {
       let m = candidate.match(setRegexAt);
-      if (m) return { reps: parseInt(m[1], 10), weight: parseFloat(m[2]) };
+      if (m) return { reps: parseInt(m[1], 10), weight: kgToLb(parseFloat(m[2]), candidate) };
       m = candidate.match(setRegexX);
-      if (m) return { weight: parseFloat(m[1]), reps: parseInt(m[2], 10) };
+      if (m) return { weight: kgToLb(parseFloat(m[1]), candidate), reps: parseInt(m[2], 10) };
     }
     const m = stripNoise(line).match(setRegexBare) || line.match(setRegexBare);
     if (m) return { reps: parseInt(m[1], 10), weight: parseFloat(m[2]) };
@@ -4225,8 +4764,18 @@ function parseWorkoutText(text) {
   };
 
   for (let line of lines) {
+    // A bare "3x10" line is sets x reps with no load recorded, not a
+    // single set of 3 lbs x 10.
+    const sxr = stripNoise(line).match(/^(\d{1,2})\s*[x×]\s*(\d{1,3})$/);
+    if (sxr && currentExercise) {
+      const count = Math.min(20, parseInt(sxr[1], 10));
+      for (let k = 0; k < count; k++) {
+        currentExercise.sets.push({ reps: parseInt(sxr[2], 10), weight: 0, actualReps: parseInt(sxr[2], 10), actualWeight: 0, rest: 90, type: 'working', completed: true });
+      }
+      continue;
+    }
     const set = matchSet(line);
-    const looksLikeWorkoutTitle = /(?:push|pull|legs|upper|lower|full|chest|back|shoulder|arm|day|workout)/i.test(line) && !set;
+    const looksLikeWorkoutTitle = /\b(?:push|pull|legs|upper|lower|full body|chest|back|shoulders?|arms?|day|workout)\b/i.test(line) && line.length < 50 && !set;
 
     if (looksLikeWorkoutTitle || (dateRegex.test(line) && line.length < 40)) {
       if (current && current.exercises.length) workouts.push(current);
@@ -4234,9 +4783,9 @@ function parseWorkoutText(text) {
         id: uid(),
         name: line.replace(dateRegex, '').trim() || 'Recovered Workout',
         date: extractDate(line) || new Date().toISOString().slice(0, 10),
-        startTime: Date.now(),
-        endTime: Date.now(),
-        duration: 3600000,
+        // No timing was recovered from the text; do not fabricate a
+        // duration or start/end times and store them as fact.
+        duration: null,
         exercises: []
       };
       currentExercise = null;
@@ -4263,17 +4812,27 @@ function parseWorkoutText(text) {
 }
 
 function extractDate(text) {
+  const iso = String(text).match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const dt = new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]));
+    return (dt.getUTCFullYear() === +iso[1] && dt.getUTCMonth() === +iso[2] - 1 && dt.getUTCDate() === +iso[3])
+      ? iso[1] + '-' + iso[2] + '-' + iso[3] : null;
+  }
+  const valid = (y, mo, d) => {
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d
+      ? y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0') : null;
+  };
   const m = text.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
   if (m) {
-    let y = m[3] ? (m[3].length === 2 ? '20' + m[3] : m[3]) : String(new Date().getFullYear());
-    return y + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0');
+    const y = m[3] ? (m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10)) : new Date().getFullYear();
+    return valid(y, parseInt(m[1], 10), parseInt(m[2], 10));
   }
   const months = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
   const m2 = text.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})/i);
   if (m2) {
     const month = months[m2[1].toLowerCase().slice(0, 3)];
-    const day = m2[2].padStart(2, '0');
-    return new Date().getFullYear() + '-' + String(month).padStart(2, '0') + '-' + day;
+    return valid(new Date().getFullYear(), month, parseInt(m2[2], 10));
   }
   return null;
 }
@@ -4282,10 +4841,7 @@ function importParsedScreenshots() {
   if (!parsedScreenshotWorkouts.length) return;
   let added = 0;
   parsedScreenshotWorkouts.forEach(w => {
-    const exists = state.workouts.some(existing =>
-      (existing.date || '').slice(0, 10) === (w.date || '').slice(0, 10) &&
-      (existing.name || '').toLowerCase() === (w.name || '').toLowerCase()
-    );
+    const exists = state.workouts.some(existing => workoutImportKey(existing) === workoutImportKey(w));
     if (!exists) {
       state.workouts.push(w);
       added++;
@@ -4311,14 +4867,29 @@ function importParsedScreenshots() {
 function openModal(id) {
   document.getElementById(id).classList.add('open');
 }
+let editingTemplateSnapshot = null;
+function templateEditDirty() {
+  return !!(editingTemplate && editingTemplateSnapshot !== null &&
+    JSON.stringify(editingTemplate) !== editingTemplateSnapshot);
+}
 function closeModal(id) {
+  if (id === 'template-editor-modal' && templateEditDirty()) {
+    openConfirm('Discard changes?', 'This template has unsaved changes. Discard them?', () => {
+      editingTemplateSnapshot = null;
+      document.getElementById(id).classList.remove('open');
+    });
+    return;
+  }
   document.getElementById(id).classList.remove('open');
 }
 
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', (e) => {
-    if (e.target === o) o.classList.remove('open');
+    if (e.target === o) {
+      if (o.id === 'template-editor-modal') closeModal(o.id);
+      else o.classList.remove('open');
+    }
   });
 });
 
@@ -4326,7 +4897,7 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
 // UTILITIES
 // ============================================================
 function escHtml(str) {
-  return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // ============================================================
@@ -4347,6 +4918,14 @@ if ('serviceWorker' in navigator) {
 // INIT
 // ============================================================
 loadState();
+try {
+  const restEnd = +localStorage.getItem('liftTrackerRestEnd') || 0;
+  if (restEnd > Date.now() && state.activeWorkout) {
+    startRestTimer(Math.ceil((restEnd - Date.now()) / 1000));
+  } else if (restEnd) {
+    localStorage.removeItem('liftTrackerRestEnd');
+  }
+} catch (e) {}
 initCloudOnLoad();
 
 // iOS home-screen sign-in handoff: reload once when returning from the
@@ -4654,27 +5233,29 @@ function computeAnalysis() {
   // Strength progress: compare first half vs second half of recent workouts
   let strengthTrend = 'stable';
   if (recentWorkouts.length >= 4) {
-    const mid = Math.floor(recentWorkouts.length / 2);
-    const firstHalf = recentWorkouts.slice(0, mid);
-    const secondHalf = recentWorkouts.slice(mid);
+    const chrono = [...recentWorkouts].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const mid = Math.floor(chrono.length / 2);
+    const firstHalf = chrono.slice(0, mid);
+    const secondHalf = chrono.slice(mid);
     const avgFirst = getAvgIntensity(firstHalf);
     const avgSecond = getAvgIntensity(secondHalf);
     if (avgSecond > avgFirst * 1.05) strengthTrend = 'improving';
     else if (avgSecond < avgFirst * 0.95) strengthTrend = 'declining';
   }
 
-  // Measurement trends
-  const meas = (state.measurements || []).slice(-2);
+  // Measurement trends: measurements store { date, values: {...} }, and
+  // "previous" means the earlier calendar date, not the earlier push.
+  const meas = [...(state.measurements || [])].sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-2);
   let weightTrend = null, bodyFatTrend = null;
   if (meas.length === 2) {
-    const w0 = meas[0].weight, w1 = meas[1].weight;
-    if (w0 && w1) weightTrend = { from: w0, to: w1, diff: (w1 - w0).toFixed(1) };
-    const bf0 = meas[0].bodyFat, bf1 = meas[1].bodyFat;
-    if (bf0 && bf1) bodyFatTrend = { from: bf0, to: bf1, diff: (bf1 - bf0).toFixed(1) };
+    const w0 = meas[0].values && meas[0].values.weight, w1 = meas[1].values && meas[1].values.weight;
+    if (w0 != null && w1 != null) weightTrend = { from: w0, to: w1, diff: (w1 - w0).toFixed(1) };
+    const bf0 = meas[0].values && meas[0].values.bodyFat, bf1 = meas[1].values && meas[1].values.bodyFat;
+    if (bf0 != null && bf1 != null) bodyFatTrend = { from: bf0, to: bf1, diff: (bf1 - bf0).toFixed(1) };
   }
 
   // Find weakest muscle groups (fewest exercises trained)
-  const allMuscles = ['Chest','Back','Shoulders','Arms','Legs','Core','Cardio'];
+  const allMuscles = ['Chest','Back','Shoulders','Arms','Legs','Core','Cardio','Full Body','Traps'];
   const muscleScores = allMuscles.map(m => ({
     name: m,
     count: muscleCounts[m] || 0,
@@ -4684,7 +5265,11 @@ function computeAnalysis() {
 
   const sorted = [...muscleScores].sort((a, b) => b.sets - a.sets);
   const strengths = sorted.filter(m => m.sets > 0).slice(0, 3);
-  const weaknesses = sorted.filter(m => m.sets > 0).reverse().slice(0, 3);
+  const strengthNames = new Set(strengths.map(m => m.name));
+  // Weaknesses are the least-trained groups INCLUDING the ones at zero:
+  // filtering zeros out first called the only trained muscle neglected.
+  const weaknesses = [...muscleScores].sort((a, b) => a.sets - b.sets)
+    .filter(m => !strengthNames.has(m.name)).slice(0, 3);
 
   // Workout types (which exercises appear most)
   const exerciseFreq = {};
@@ -4709,7 +5294,8 @@ function getAvgIntensity(workouts) {
   workouts.forEach(w => {
     (w.exercises || []).forEach(ex => {
       (ex.sets || []).forEach(s => {
-        if (s.completed && s.actualWeight > 0) { total += s.actualWeight; count++; }
+        const aw = Number(s.actualWeight);
+        if (s.completed && isFinite(aw) && aw > 0) { total += aw; count++; }
       });
     });
   });
@@ -4783,7 +5369,7 @@ function generateAdvice(profile, analysis) {
     if (topSets > 0 && botSets > 0 && topSets / botSets > 3) {
       advice.push({
         type: 'focus', title: 'Your Training Is Lopsided',
-        body: `You're doing ${Math.round(topSets / botSets * 100)}% more volume on ${strengths[0].name} than ${weaknesses.filter(m => m.sets > 0)[0].name}. This creates imbalances that lead to injury and make you look like a cartoon character. Balance isn't boring — it's smart.`,
+        body: `You're doing ${Math.round((topSets / botSets - 1) * 100)}% more volume on ${strengths[0].name} than ${weaknesses[0].name}. This creates imbalances that lead to injury and make you look like a cartoon character. Balance isn't boring — it's smart.`,
         action: `Equalize your volume. Every set of ${strengths[0].name.toLowerCase()} gets a matching set for ${weaknesses.filter(m => m.sets > 0)[0].name.toLowerCase()}.`
       });
     }
@@ -4970,7 +5556,7 @@ function renderProfile() {
     <div class="profile-hero">
       <div class="ph-avatar">${(p.goal || 'G')[0].toUpperCase()}</div>
       <div class="ph-name">Your Fitness Profile</div>
-      <div class="ph-goal">${goalLabels[p.goal] || p.goal}</div>
+      <div class="ph-goal">${escHtml(goalLabels[p.goal] || p.goal)}</div>
       <div class="ph-level">${levelLabels[p.experience] || ''} • ${freqLabels[p.frequency] || ''}</div>
     </div>
 
@@ -5047,9 +5633,9 @@ function renderProfile() {
       ${advice.map(a => `
         <div class="coach-card ${a.type}">
           <div class="cc-badge">${a.type === 'urgent' ? '⚠️ Urgent' : a.type === 'focus' ? '🎯 Focus' : a.type === 'win' ? '✅ Win' : '💡 Tip'}</div>
-          <div class="cc-title">${a.title}</div>
-          <div class="cc-body">${a.body}</div>
-          <div class="cc-action">→ ${a.action}</div>
+          <div class="cc-title">${escHtml(a.title)}</div>
+          <div class="cc-body">${escHtml(a.body)}</div>
+          <div class="cc-action">→ ${escHtml(a.action)}</div>
         </div>
       `).join('')}
     </div>

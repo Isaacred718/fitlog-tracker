@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lift-tracker-v7';
+const CACHE_NAME = 'lift-tracker-v8';
 const ASSETS = ['./index.html', './manifest.json', './auth.html'];
 
 // Domains that should never be cached (auth, APIs, external resources)
@@ -40,7 +40,14 @@ self.addEventListener('fetch', (e) => {
   const shouldBypassCache = BYPASS_CACHE.some(domain => url.hostname.includes(domain));
 
   if (shouldBypassCache || isAuthPage) {
-    e.respondWith(fetch(e.request).catch(() => caches.match('./index.html')));
+    e.respondWith(fetch(e.request).catch(() => {
+      // The app-shell fallback is only valid for navigations. Returning
+      // index.html for a failed script request makes the browser parse
+      // HTML as JavaScript ("Unexpected token '<'") and can break the
+      // Firebase SDK load entirely.
+      if (isNavigate) return caches.match('./index.html');
+      return new Response('', { status: 504, statusText: 'Offline' });
+    }));
     return;
   }
 
@@ -49,10 +56,25 @@ self.addEventListener('fetch', (e) => {
   if (isNavigate) {
     e.respondWith(
       fetch(e.request)
-        .then(r => {
+        .then(async r => {
           if (r && r.ok) {
             const clone = r.clone();
-            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+            try {
+              const cache = await caches.open(CACHE_NAME);
+              const old = await cache.match(e.request);
+              if (old) {
+                // The update notification used to live in the
+                // stale-while-revalidate branch under a condition that
+                // could never be true there, so it never fired. Compare
+                // here, where a fresh navigation response actually lands.
+                const [oldText, newText] = await Promise.all([old.text(), r.clone().text()]);
+                if (oldText !== newText) {
+                  const wins = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+                  wins.forEach(w => w.postMessage({ type: 'APP_UPDATE' }));
+                }
+              }
+              await cache.put(e.request, clone);
+            } catch (_) {}
           }
           return r;
         })
@@ -68,15 +90,6 @@ self.addEventListener('fetch', (e) => {
           if (r && r.ok) {
             const clone = r.clone();
             caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-            if (cached && isNavigate) {
-              Promise.all([cached.text(), r.clone().text()]).then(([oldText, newText]) => {
-                if (oldText !== newText) {
-                  clients.matchAll({type: 'window', includeUncontrolled: true}).then(wins => {
-                    wins.forEach(w => w.postMessage({type: 'APP_UPDATE'}));
-                  });
-                }
-              }).catch(() => {});
-            }
           }
           return r;
         })
