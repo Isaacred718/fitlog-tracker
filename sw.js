@@ -1,5 +1,5 @@
-const CACHE_NAME = 'lift-tracker-v8';
-const ASSETS = ['./index.html', './manifest.json', './auth.html'];
+const CACHE_NAME = 'lift-tracker-v9';
+const ASSETS = ['./index.html', './manifest.json', './auth.html', './fonts/nunito.woff2'];
 
 // Domains that should never be cached (auth, APIs, external resources)
 const BYPASS_CACHE = [
@@ -25,7 +25,8 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+    // Only this app's old caches: other apps on the same site keep theirs.
+    caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('lift-tracker-') && k !== CACHE_NAME).map(k => caches.delete(k))))
   );
   self.clients.claim();
 });

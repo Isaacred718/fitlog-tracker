@@ -108,3 +108,21 @@
   4. Service worker `lift-tracker-v7`: never cache `auth.html`; network-first for navigations.
 - **Required one-time Google Cloud step:** add Authorized redirect URI `https://isaacred718.github.io/fitlog-tracker/auth.html` on OAuth client `1045140412331-30reu9jtrqcvs3pv63e49f6qjuie83cs`.
 - After deploy: delete the old Home Screen icon and re-add the page (or force-close the PWA so SW v7 activates).
+
+## v3.0 (2026-11-11): new look, Android and Meta Quest apps
+
+- **New skin** in `index.html` (search `v3 skin`): bundled Nunito type
+  (`fonts/`), pressable buttons with a bottom lip, larger tap targets, a
+  bigger tab bar, and bottom sheets with a drag handle that close when dragged
+  down. Wide screens get a four-across stat row and centered dialogs.
+- **Fixed:** dashboard stat cards were stacked one per row because
+  `#dashboard-stats` was missing the `stat-grid` class.
+- **Fixed:** `sw.js` deleted every cache on `isaacred718.github.io` except its
+  own, which wiped the offline copies of the other apps on the same site. It
+  now only removes old `lift-tracker-*` caches.
+- **Android + Quest:** `android/` builds a phone APK and a Meta Quest panel APK
+  that work offline (see `android/README.md`). Inside the app, Google sign-in
+  uses the same paste-a-code hand-off as the iOS Home Screen app, through
+  `https://isaacred718.github.io/fitlog-tracker/auth.html`. The screen stays
+  on during an active workout, and Back closes the top sheet first.
+- Regression suite (`qa/regression.mjs`, Chromium) passes on this version.

@@ -66,9 +66,9 @@
       card.innerHTML = "";
       var h = document.createElement("h1"); h.textContent = "You are signed in to Google ✓";
       var intro = document.createElement("p");
-      intro.textContent = "iPhone keeps the home-screen app's storage separate from Safari, so the sign-in cannot jump back on its own. Carry it over with this code:";
+      intro.textContent = "The app keeps its storage separate from this browser, so the sign-in cannot jump back on its own. Carry it over with this code:";
       var steps = document.createElement("ol");
-      steps.innerHTML = "<li>Tap <b>Copy code</b> below</li><li>Switch back to the <b>Lift Tracker</b> home-screen app</li><li>Tap <b>Paste sign-in code</b> in Settings and paste it in</li>";
+      steps.innerHTML = "<li>Tap <b>Copy code</b> below</li><li>Switch back to the <b>Lift Tracker</b> app</li><li>Tap <b>Paste sign-in code</b> in Settings and paste it in</li>";
       var ta = document.createElement("textarea");
       ta.id = "sign-code"; ta.readOnly = true; ta.value = code; ta.setAttribute("aria-label", "Sign-in code");
       var copyBtn = document.createElement("button"); copyBtn.textContent = "Copy code";

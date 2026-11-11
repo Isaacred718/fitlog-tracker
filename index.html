@@ -403,6 +403,70 @@ a{color:var(--green);text-decoration:none}
 .toggle-row:last-of-type{border-bottom:none}
 .toggle-row input{width:20px;height:20px;accent-color:var(--green);flex-shrink:0}
 
+/* =====================================================================
+   v3 skin — friendly, chunky, thumb-first.
+   Rounded type, big pressable buttons with a bottom lip, larger tap
+   targets, bottom sheets with a drag handle, and layouts for wide
+   screens and the Meta Quest panel.
+   ===================================================================== */
+@font-face{font-family:"Nunito";src:url("fonts/nunito.woff2") format("woff2");font-weight:200 1000;font-style:normal;font-display:swap}
+:root{--radius:18px;--radius-sm:14px;--radius-xs:10px;--lip:rgba(0,0,0,.45);--green3:#4f9a12}
+body{font-family:"Nunito",ui-rounded,"SF Pro Rounded",'Inter',system-ui,-apple-system,sans-serif;font-weight:500}
+.header{height:60px;border-bottom-width:2px}
+.header-logo h1{font-size:1.3rem;font-weight:900;letter-spacing:0}
+.icon-btn{min-width:44px;min-height:44px}
+.card,.stat-card,.exercise-item{border-width:2px}
+.card-title{font-weight:800;font-size:1.02rem}
+.btn{min-height:48px;border-radius:14px;font-weight:800;font-size:.95rem;letter-spacing:.01em;transition:transform .06s ease,box-shadow .06s ease,background .15s}
+.btn-primary{box-shadow:0 4px 0 var(--green3)}
+.btn-secondary{border-width:2px;box-shadow:0 4px 0 var(--border)}
+.btn-danger{box-shadow:0 4px 0 #b53a3a}
+.btn-primary:active,.btn-secondary:active,.btn-danger:active{transform:translateY(4px);box-shadow:none}
+.btn-sm{min-height:40px;border-radius:12px;font-size:.85rem}
+.btn-ghost{min-height:44px}
+.btn-block.btn-primary{min-height:58px;font-size:1.1rem}
+.btn:disabled{box-shadow:none;transform:none}
+.form-input,.form-select,.form-textarea{border-width:2px;min-height:48px;font-weight:700;font-size:1rem}
+.chip{min-height:38px;padding:6px 14px;border-width:2px;font-weight:800;font-size:.8rem}
+.stat-value{font-weight:900;font-size:1.7rem}
+.stat-label{font-weight:800}
+.exercise-item{min-height:64px;box-shadow:0 3px 0 var(--border);transition:transform .06s ease,box-shadow .06s ease,border-color .15s}
+.exercise-item:active{transform:translateY(3px);box-shadow:none}
+.exercise-item .ex-name{font-weight:800;font-size:.98rem}
+.toast{border-width:2px;font-weight:700}
+
+/* tab bar */
+.bottom-nav{height:auto;min-height:68px;border-top-width:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:2px}
+.nav-item{font-size:.68rem;font-weight:800;border-radius:14px;border:2px solid transparent;min-height:54px;text-transform:uppercase;letter-spacing:.02em}
+.nav-item svg{width:24px;height:24px}
+.nav-item.active{background:rgba(140,242,58,.12);border-color:rgba(140,242,58,.45)}
+.nav-item:hover{background:rgba(140,242,58,.07)}
+.main{padding-bottom:96px}
+@media(max-width:480px){.nav-item{font-size:.62rem;text-transform:none;letter-spacing:0}}
+
+/* bottom sheets: handle on top, drag down to close */
+.modal{border-width:2px;border-bottom:none;border-radius:24px 24px 0 0;padding-top:8px}
+.modal::before{content:"";display:block;width:44px;height:5px;border-radius:99px;background:var(--border2);margin:2px auto 12px}
+.modal.dragging{transition:none}
+.modal-title{font-weight:900;font-size:1.2rem;touch-action:none;cursor:grab}
+
+/* Android app: the sync pill only matters once you are signed in */
+html.native-app #sync-status.error,html.native-app #sync-status.offline{display:none!important}
+
+/* wide screens and the Quest panel */
+@media(min-width:900px){
+  .main{max-width:1000px}
+  #dashboard-stats.stat-grid{grid-template-columns:repeat(4,1fr)}
+  .bottom-nav{justify-content:center}
+  .nav-item{max-width:160px;flex-direction:row;gap:8px;font-size:.8rem}
+  .modal-overlay{align-items:center}
+  .modal{border-radius:24px;border-bottom:2px solid var(--border);max-width:640px}
+}
+html.quest{font-size:18px}
+html.quest .btn:hover,html.quest .nav-item:hover,html.quest .exercise-item:hover,html.quest .chip:hover,html.quest .icon-btn:hover{outline:3px solid var(--green);outline-offset:2px}
+html.quest ::-webkit-scrollbar{width:14px}
+@media(prefers-reduced-motion:reduce){.btn,.exercise-item{transition:none}}
+
 /* Print */
 @media print{.bottom-nav,.header,.modal-overlay,.timer-overlay{display:none!important}.main{padding-bottom:0}}
 </style>
@@ -456,7 +520,7 @@ a{color:var(--green);text-decoration:none}
       </div>
       <div class="mt-3" id="dashboard-rest-timer"></div>
       <div class="mt-3" id="dashboard-calendar"></div>
-      <div class="mt-3" id="dashboard-stats"></div>
+      <div class="mt-3 stat-grid" id="dashboard-stats"></div>
       <div class="mt-4">
         <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:10px">Recent Activity</h3>
         <div id="dashboard-activity"></div>
@@ -1242,11 +1306,18 @@ function isStandalonePwa() {
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
 }
 
+// True inside the Android / Quest app (see android/). Google refuses to sign
+// in inside an in-app web view, so the app uses the same code hand-off as the
+// iOS Home Screen app: sign in in the browser, paste the code back here.
+function isNativeApp() { return !!window.NATIVE_APP; }
+const LIVE_AUTH_PAGE = "https://isaacred718.github.io/fitlog-tracker/auth.html";
+
 function isIosStandalonePwa() {
-  return isIosDevice() && isStandalonePwa();
+  return (isIosDevice() && isStandalonePwa()) || isNativeApp();
 }
 
 function googleOidcRedirectUri() {
+  if (isNativeApp()) return LIVE_AUTH_PAGE;
   const u = new URL(window.location.href);
   let dir = u.pathname.replace(/\/index\.html$/i, "/");
   if (!dir.endsWith("/")) dir += "/";
@@ -1729,7 +1800,7 @@ function signInWithGoogle() {
   // misleading "not configured" error. Firebase is only needed on return,
   // where pasteSignInCode checks for it again.
   if (isIosStandalonePwa()) {
-    openConfirm("Sign in with Google", "Google opens in Safari and shows you a sign-in code. Copy the code, switch back to this app, then tap Paste sign-in code in Settings and paste it in.", () => { startIosGoogleOidc(); });
+    openConfirm("Sign in with Google", (isNativeApp() ? "Google opens in your browser" : "Google opens in Safari") + " and shows you a sign-in code. Copy the code, switch back to this app, then tap Paste sign-in code in Settings and paste it in.", () => { startIosGoogleOidc(); });
     return;
   }
   if (!auth || !googleProvider) {
@@ -2142,13 +2213,15 @@ function renderCloudUI() {
     configArea.style.display = 'none';
   } else {
     userEl.textContent = 'Not connected';
-    const iosNote = isIosStandalonePwa()
+    const iosNote = isNativeApp()
+      ? `<p class="cs-note">Sign-in here uses a code: tap Sign in with Google, copy the code your browser shows, come back and paste it below. Your workouts are saved on this device either way.</p>`
+      : isIosStandalonePwa()
       ? `<p class="cs-note">Home Screen sign-in: tap Sign in with Google, copy the code Google shows you in Safari, come back here and paste it below. (If Google instead shows <em>redirect_uri_mismatch</em>, add this exact URL under Google Cloud → APIs & Credentials → your Web client → Authorized redirect URIs:<br><code style="color:var(--green);word-break:break-all">${googleOidcRedirectUri()}</code>)</p>`
       : (isIosDevice() ? `<p class="cs-note">On iPhone the Home Screen app has its own Google login, separate from Safari. Open Lift Tracker from the icon and tap Sign in there.</p>` : "");
     const pasteBlock = isIosStandalonePwa()
       ? `<div style="margin-top:12px">
           <label class="form-label" for="paste-code-input">Have a sign-in code?</label>
-          <textarea class="form-input" id="paste-code-input" rows="3" placeholder="Paste the code from Safari here" style="width:100%;box-sizing:border-box;word-break:break-all"></textarea>
+          <textarea class="form-input" id="paste-code-input" rows="3" placeholder="Paste the sign-in code here" style="width:100%;box-sizing:border-box;word-break:break-all"></textarea>
           <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="pasteSignInCode()">Paste sign-in code</button>
         </div>`
       : "";
@@ -5641,6 +5714,63 @@ function renderProfile() {
     </div>
   `;
 }
+
+// ============================================================
+// SHEET GESTURES + ANDROID APP GLUE (v3)
+// ============================================================
+(function () {
+  // Drag a bottom sheet down by its title (or the handle above it) to close it.
+  document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+    var startY = 0, lastY = 0, lastT = 0, vel = 0, modal = null;
+    overlay.addEventListener('pointerdown', function (e) {
+      var m = overlay.querySelector('.modal');
+      if (!m || !overlay.classList.contains('open')) return;
+      if (e.target.closest('button, a, input, select, textarea')) return;
+      var onTitle = !!e.target.closest('.modal-title');
+      var onHandle = e.target === m && (e.clientY - m.getBoundingClientRect().top) < 28;
+      if (!onTitle && !onHandle) return;
+      modal = m; startY = lastY = e.clientY; lastT = e.timeStamp; vel = 0;
+      modal.classList.add('dragging');
+    });
+    overlay.addEventListener('pointermove', function (e) {
+      if (!modal) return;
+      var dt = e.timeStamp - lastT;
+      if (dt > 0) vel = (e.clientY - lastY) / dt;
+      lastY = e.clientY; lastT = e.timeStamp;
+      modal.style.transform = 'translateY(' + Math.max(0, e.clientY - startY) + 'px)';
+    });
+    function end(e) {
+      if (!modal) return;
+      var m = modal, dy = Math.max(0, e.clientY - startY);
+      modal = null;
+      m.classList.remove('dragging');
+      m.style.transform = '';
+      if (dy > m.offsetHeight / 3 || vel > 0.6) closeModal(overlay.id);
+    }
+    overlay.addEventListener('pointerup', end);
+    overlay.addEventListener('pointercancel', end);
+  });
+
+  // Android Back: close whatever is on top first, then go Home.
+  window.__nativeBack = function () {
+    var confirmEl = document.getElementById('confirm-dialog');
+    if (confirmEl && confirmEl.classList.contains('open')) { closeConfirm(); return true; }
+    var open = document.querySelectorAll('.modal-overlay.open');
+    if (open.length) { closeModal(open[open.length - 1].id); return true; }
+    var active = document.querySelector('.view.active');
+    if (active && active.id !== 'view-dashboard') { showView('dashboard'); return true; }
+    return false;
+  };
+
+  // Keep the screen on in the Android app while a workout is in progress.
+  if (window.AndroidShell && AndroidShell.keepAwake) {
+    var awake = false;
+    setInterval(function () {
+      var want = !!(typeof state !== 'undefined' && state && state.activeWorkout);
+      if (want !== awake) { awake = want; try { AndroidShell.keepAwake(want); } catch (e) {} }
+    }, 3000);
+  }
+})();
 </script>
 </body>
 </html>
