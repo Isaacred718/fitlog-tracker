@@ -32,6 +32,7 @@ interface AppActions {
   addSet: (exerciseIndex: number) => void;
   removeSet: (exerciseIndex: number, setIndex: number) => void;
   updateSet: (exerciseIndex: number, setIndex: number, field: SetField, value: number) => void;
+  setRpe: (exerciseIndex: number, setIndex: number, rpe: number | null) => void;
   completeSet: (exerciseIndex: number, setIndex: number) => void;
   uncompleteSet: (exerciseIndex: number, setIndex: number) => void;
   repeatLastSet: (exerciseIndex: number, setIndex: number) => void;
@@ -172,7 +173,8 @@ export const useAppStore = create<DadbodStore>()(
             const sets = workout.exercises[exerciseIndex]?.sets;
             if (!sets) return false;
             const previous = sets.at(-1);
-            sets.push(previous ? { ...previous, completed: false } : freshSet());
+            // The new set has not been performed: it must not inherit a rating.
+            sets.push(previous ? { ...previous, completed: false, rpe: undefined } : freshSet());
           });
           const sets = get().activeWorkout?.exercises[exerciseIndex]?.sets;
           if (sets) set({ focus: { exerciseIndex, setIndex: sets.length - 1 } });
@@ -199,6 +201,13 @@ export const useAppStore = create<DadbodStore>()(
           const target = workout.exercises[exerciseIndex]?.sets[setIndex];
           if (!target) return false;
           target[field] = clamp(value);
+        }),
+        setRpe: (exerciseIndex, setIndex, rpe) => editWorkout((workout) => {
+          const target = workout.exercises[exerciseIndex]?.sets[setIndex];
+          if (!target) return false;
+          if (rpe === null) { delete target.rpe; return; }
+          if (!Number.isInteger(rpe) || rpe < 1 || rpe > 10) return false;
+          target.rpe = rpe;
         }),
         completeSet: (exerciseIndex, setIndex) => {
           let rest = 0;

@@ -3,7 +3,7 @@ import { Icon } from '../../components/Icon';
 import { addDays, monthDay, todayKey, weekStart, workoutDayKey } from '../../lib/dates';
 import { streakWeeks } from '../../lib/plan';
 import { navigate, planPath } from '../../lib/router';
-import { bestSet, formatDuration, formatWeight, sortedHistory, summarizeSets, totalSetCount, workoutVolume } from '../../lib/workouts';
+import { bestSet, formatDuration, formatRpe, formatWeight, sortedHistory, summarizeSets, totalSetCount, workoutRpe, workoutVolume } from '../../lib/workouts';
 import { useAppStore } from '../../store/useAppStore';
 
 function compact(value: number) {
@@ -91,7 +91,7 @@ export function ProgressScreen() {
                       <span className="history-date"><strong>{monthDay(key).split(' ')[1]}</strong><small>{monthDay(key).split(' ')[0]}</small></span>
                       <span className="history-body">
                         <strong>{workout.name}</strong>
-                        <small>{totalSetCount(workout)} sets · {workoutVolume(workout).toLocaleString()} lb · {formatDuration(workout.duration ?? 0)}</small>
+                        <small>{totalSetCount(workout)} sets · {workoutVolume(workout).toLocaleString()} lb · {formatDuration(workout.duration ?? 0)}{workoutRpe(workout) !== null ? ` · RPE ${formatRpe(workoutRpe(workout) as number)}` : ''}</small>
                         <small className="history-lines">{workout.exercises.slice(0, 3).map((exercise) => `${exercise.name} ${summarizeSets(exercise.sets)}`).join(' · ')}</small>
                       </span>
                       <Icon name="chevronRight" />

@@ -10,6 +10,7 @@ import { closeSheet, navigate, planPath } from '../../lib/router';
 import {
   formatDuration, lastPerformance, prefillExercise, sortedHistory, summarizeSets, totalSetCount,
   workoutPRs, workoutVolume,
+  averageRpe, formatRpe, ratedSetCount, workoutRpe,
 } from '../../lib/workouts';
 import { useAppStore } from '../../store/useAppStore';
 import type { Template, Workout } from '../../types/domain';
@@ -57,6 +58,8 @@ function SessionSummary({ workout, workouts, highlight }: { workout: Workout; wo
   const previous = sortedHistory(workouts).find((item) => item.id !== workout.id && item.startTime < workout.startTime
     && (workout.templateId ? item.templateId === workout.templateId : item.name === workout.name));
   const delta = previous ? volume - workoutVolume(previous) : null;
+  const effort = workoutRpe(workout);
+  const rated = ratedSetCount(workout);
   return (
     <article className={`summary-card${highlight ? ' is-fresh' : ''}`} aria-label={`${workout.name} summary`}>
       <header>
@@ -68,6 +71,9 @@ function SessionSummary({ workout, workouts, highlight }: { workout: Workout; wo
         <div><dt>Sets</dt><dd>{totalSetCount(workout)}</dd></div>
         <div><dt>Volume</dt><dd>{volume.toLocaleString()}<small> lb</small></dd></div>
       </dl>
+      {effort !== null && (
+        <p className="summary-note">Average effort <strong>RPE {formatRpe(effort)}</strong> across {rated} rated set{rated === 1 ? '' : 's'}.</p>
+      )}
       {(delta !== null || prs.length > 0) && (
         <p className="summary-note">
           {delta !== null && <span>{delta >= 0 ? '+' : '−'}{Math.abs(delta).toLocaleString()} lb vs last {workout.name}. </span>}
@@ -75,9 +81,12 @@ function SessionSummary({ workout, workouts, highlight }: { workout: Workout; wo
         </p>
       )}
       <ul className="summary-lines">
-        {workout.exercises.map((exercise) => (
-          <li key={exercise.exerciseId}><span>{exercise.name}</span><span>{summarizeSets(exercise.sets)}</span></li>
-        ))}
+        {workout.exercises.map((exercise) => {
+          const exRpe = averageRpe(exercise.sets);
+          return (
+            <li key={exercise.exerciseId}><span>{exercise.name}</span><span>{summarizeSets(exercise.sets)}{exRpe !== null ? ` · RPE ${formatRpe(exRpe)}` : ''}</span></li>
+          );
+        })}
       </ul>
     </article>
   );

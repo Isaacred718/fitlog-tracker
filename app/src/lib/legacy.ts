@@ -65,7 +65,7 @@ export function convertLegacySet(raw: unknown): WorkoutSet {
   const source = isRecord(raw) ? raw : {};
   const reps = num(source.reps, 0, 9999);
   const weight = num(source.weight, 0, 2000);
-  return {
+  const result: WorkoutSet = {
     reps,
     weight,
     rest: num(source.rest, 90, 3600),
@@ -74,6 +74,11 @@ export function convertLegacySet(raw: unknown): WorkoutSet {
     actualWeight: actualNum(source.actualWeight, weight, 2000),
     completed: !!source.completed,
   };
+  // Redesign backups carry effort ratings; keep them (legacy saves have none).
+  if (typeof source.rpe === 'number' && source.rpe >= 1 && source.rpe <= 10) {
+    result.rpe = Math.round(source.rpe);
+  }
+  return result;
 }
 
 export function convertLegacyExercise(raw: unknown): WorkoutExercise {

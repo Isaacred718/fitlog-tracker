@@ -49,6 +49,9 @@ for (const [name, engine] of engines) {
   // unreliable from this sandbox, so intercept and record the attempted URL.
   let attempted = '';
   await ctx.route('https://www.youtube.com/**', (route) => { attempted = route.request().url(); return route.abort(); });
+  // The fixed dock overlays the lower viewport; scroll the link clear of it
+  // first, the way a user flicks the list up before tapping.
+  await cardLink.evaluate((el) => { el.scrollIntoView({ block: 'center' }); window.scrollBy(0, 140); });
   const [popup] = await Promise.all([
     ctx.waitForEvent('page', { timeout: 8000 }).catch(() => null),
     cardLink.click(),

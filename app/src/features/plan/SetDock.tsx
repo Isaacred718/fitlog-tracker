@@ -9,6 +9,8 @@ import type { Workout } from '../../types/domain';
 
 const CHIPS = [-5, 2.5, 5, 10];
 
+const RPE_VALUES = [5, 6, 7, 8, 9, 10];
+
 export function pointerLabel(workout: Workout, pointer: SetPointer | null): string | null {
   if (!isValidPointer(workout, pointer)) return null;
   const exercise = workout.exercises[pointer.exerciseIndex];
@@ -25,6 +27,7 @@ export function SetDock({ workout, onFinish }: { workout: Workout; onFinish: () 
   const focus = useAppStore((state) => state.focus);
   const workouts = useAppStore((state) => state.workouts);
   const updateSet = useAppStore((state) => state.updateSet);
+  const setRpe = useAppStore((state) => state.setRpe);
   const completeSet = useAppStore((state) => state.completeSet);
   const uncompleteSet = useAppStore((state) => state.uncompleteSet);
   const repeatLastSet = useAppStore((state) => state.repeatLastSet);
@@ -86,6 +89,16 @@ export function SetDock({ workout, onFinish }: { workout: Workout; onFinish: () 
               : <button type="button" className="cta done-btn" onClick={() => { navigator.vibrate?.(12); completeSet(exerciseIndex, setIndex); }}>
                   <Icon name="check" size={28} /> Done
                 </button>}
+          </div>
+          <div className="effort-row" role="group" aria-label={`Effort for ${exercise.name} set ${setIndex + 1}, RPE`}>
+            <span className="effort-tag" aria-hidden="true">Effort</span>
+            {RPE_VALUES.map((value) => (
+              <button type="button" key={value} className="effort-chip" aria-pressed={current.rpe === value}
+                aria-label={`RPE ${value}${current.rpe === value ? ', selected. Tap again to clear' : ''}`}
+                onClick={() => setRpe(exerciseIndex, setIndex, current.rpe === value ? null : value)}>
+                {value}
+              </button>
+            ))}
           </div>
         </>}
       </section>

@@ -17,6 +17,8 @@ export interface WorkoutSet {
   actualReps: number;
   actualWeight: number;
   completed: boolean;
+  /** Effort rating (RPE 1-10) for a performed set. Absent until he rates it. */
+  rpe?: number;
 }
 
 export interface WorkoutExercise {

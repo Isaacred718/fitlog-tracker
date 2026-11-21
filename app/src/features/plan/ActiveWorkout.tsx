@@ -106,12 +106,12 @@ export function ActiveWorkout({ workout, dayKey, onFinish }: { workout: Workout;
                     return (
                       <div key={setIndex} className={`set-row${focused ? ' is-focused' : ''}${item.completed ? ' is-complete' : ''}`}>
                         <button type="button" className="set-main" aria-current={focused ? 'step' : undefined}
-                          aria-label={`Edit set ${setIndex + 1}: ${item.actualReps} reps at ${formatWeight(item.actualWeight)} pounds${item.completed ? ', done' : ''}`}
+                          aria-label={`Edit set ${setIndex + 1}: ${item.actualReps} reps at ${formatWeight(item.actualWeight)} pounds${item.completed ? ', done' : ''}${item.rpe ? `, effort RPE ${item.rpe}` : ''}`}
                           onClick={() => setFocus({ exerciseIndex, setIndex })}>
                           <span className="set-num">{setIndex + 1}</span>
                           <span className="set-target">{item.reps}</span>
                           <span className="set-val">{formatWeight(item.actualWeight)}</span>
-                          <span className="set-val">{item.actualReps}</span>
+                          <span className="set-val">{item.actualReps}{item.rpe ? <small className="rpe-tag">RPE {item.rpe}</small> : null}</span>
                         </button>
                         <button type="button" className="set-check" aria-pressed={item.completed}
                           aria-label={item.completed ? `Set ${setIndex + 1} done. Mark not done` : `Mark set ${setIndex + 1} done`}

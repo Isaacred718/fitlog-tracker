@@ -92,8 +92,30 @@ export function prefillSets(planned: WorkoutSet[], last: WorkoutSet[] | null): W
     const source = last ? last[index] ?? last[last.length - 1] : null;
     const weight = source ? source.actualWeight : set.weight;
     const reps = source ? source.actualReps : set.reps;
-    return { ...set, weight, actualWeight: weight, actualReps: reps, completed: false };
+    // A fresh session starts unrated: effort is an outcome, never a plan.
+    return { ...set, weight, actualWeight: weight, actualReps: reps, completed: false, rpe: undefined };
   });
+}
+
+/** Mean RPE over completed sets that were rated; null when nothing was rated. */
+export function averageRpe(sets: WorkoutSet[]): number | null {
+  const rated = sets.filter((set) => set.completed && typeof set.rpe === 'number');
+  if (!rated.length) return null;
+  return rated.reduce((sum, set) => sum + (set.rpe ?? 0), 0) / rated.length;
+}
+
+export function workoutRpe(workout: Workout): number | null {
+  return averageRpe(workout.exercises.flatMap((exercise) => exercise.sets));
+}
+
+export function ratedSetCount(workout: Workout): number {
+  return workout.exercises.reduce(
+    (sum, exercise) => sum + exercise.sets.filter((set) => set.completed && typeof set.rpe === 'number').length, 0);
+}
+
+/** 8 -> "8", 8.5 -> "8.5": one decimal, no trailing zero. */
+export function formatRpe(value: number): string {
+  return (Math.round(value * 10) / 10).toString();
 }
 
 export function prefillExercise(exercise: WorkoutExercise, workouts: Workout[]): WorkoutExercise {

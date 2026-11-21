@@ -309,6 +309,11 @@ input::placeholder { color: var(--text-3); opacity: 1; }
 .set-check:active { transform: scale(0.94); }
 .ex-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 12px 14px; }
 .ex-actions .ghost-btn { flex: 1; }
+.effort-row { display: flex; align-items: center; gap: 6px; }
+.effort-tag { flex: none; width: 44px; color: var(--text-3); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.effort-chip { flex: 1; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--line-strong); background: rgba(255, 255, 255, 0.03); color: var(--text-2); font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.effort-chip[aria-pressed='true'] { background: var(--lime); border-color: transparent; color: var(--on-lime); }
+.rpe-tag { display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; color: var(--lime); }
 
 .add-row .chip-row { padding-top: 0; }
 

@@ -136,3 +136,23 @@ not be re-run in this pass: the sandbox VM's WebKit build is missing a
 system library (libgstgl) and the package manager is in a broken state;
 the identical app shell passed both engines the same morning, and today's
 changes are markup/links verified in Chromium.
+
+## Addendum (2026-11-21, morning): per-set effort ratings (RPE)
+
+Added at Isaac's request: an effort baseline for every set.
+
+- Data: optional `rpe` (1-10) on WorkoutSet. Ratings are outcomes, never
+  plans: prefill, Add set and Repeat last never inherit one, and backup
+  restore keeps them (converter passthrough, range-checked).
+- Capture: an Effort chip row (RPE 5-10) in the logging dock rates the
+  focused set; tapping the selected chip clears it. The row is present for
+  completed sets too, so a set can be rated or corrected after the fact by
+  tapping its row and adjusting. Completed set rows show an "RPE n" badge.
+- Baseline readouts: the session summary gains "Average effort RPE x.x
+  across N rated sets" plus a per-exercise average on each line, and the
+  Progress history list shows each session's average RPE. Averages count
+  completed, rated sets only.
+- Verification: 31 unit tests (helpers, formatting, converter passthrough);
+  qa/dadbod-rpe.mjs drives rate -> complete -> badge -> summary -> reload
+  -> Progress history end to end; the full UI, migration, root and video
+  suites still pass (Chromium; WebKit still unavailable in this sandbox).
