@@ -1,6 +1,6 @@
 {
-  "name": "Lift Tracker",
-  "short_name": "Lift Tracker",
+  "name": "Dadbod Fitness",
+  "short_name": "Dadbod",
   "description": "Track your workouts, measure your progress",
   "id": "./",
   "start_url": "./index.html",
