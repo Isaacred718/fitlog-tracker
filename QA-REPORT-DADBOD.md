@@ -102,3 +102,37 @@ documents the rebuild-and-commit-dist step.
 - Measurements, heart-rate data and profile stay only in the legacy save.
 - Moving a missed session onto a day with a different planned session
   replaces that day's plan (explicit user action; accepted).
+
+## Addendum (2026-11-21, later): root cutover + video guides
+
+At Isaac's word the redesign was promoted to the root: the production build
+now sits at the repo root (index.html + assets/), so the main Pages URL and
+the installed home-screen app serve Dadbod Fitness. The classic app is
+preserved byte-for-byte at legacy.html and auth.html returns there, keeping
+its sync and paste-code sign-in flow self-contained. Service worker bumped
+to lift-tracker-v10; its offline fallback now answers only navigations with
+the app shell (a failed module script gets a 504, never HTML). The redesign
+also links the PWA manifest (absolute path, valid from root and /app/dist/).
+
+This also explains the "looks different as a web app" report: the manifest
+start_url always pointed at the root, so a home-screen save opened the
+classic app while Safari showed the /app/dist/ preview. The redesign itself
+was already standalone-ready (viewport-fit=cover, safe-area insets
+throughout).
+
+Restored from the classic app at Isaac's request: the per-exercise video
+guide. The classic exercise detail linked "Watch Video Guide" to a YouTube
+search for "<exercise> exercise form tutorial"; the redesign now has the
+same link as a play button on every Library catalog row and a "Video guide"
+action on the active workout card (lib/videoGuide.ts, components/
+VideoGuide.tsx, unit-tested URL construction).
+
+Verification for the addendum: 24 unit tests; qa/dadbod-root.mjs (root
+serves the redesign with migration, legacy.html boots the classic app with
+its data, zero page errors), qa/dadbod-video.mjs (Library and workout-card
+links match the classic URL byte-for-byte and open YouTube in a new page),
+and the full migration + UI suites — all passing in Chromium. WebKit could
+not be re-run in this pass: the sandbox VM's WebKit build is missing a
+system library (libgstgl) and the package manager is in a broken state;
+the identical app shell passed both engines the same morning, and today's
+changes are markup/links verified in Chromium.

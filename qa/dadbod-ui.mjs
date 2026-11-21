@@ -177,7 +177,8 @@ for (const [name, engine] of engines) {
   await page.waitForTimeout(1200);
   state = await v3(page);
   check(name, 'state persists across reload', state.workouts.length === 4 && state.templates.some(t => t.id === 'tpl-pull'));
-  await page.goto(BASE + '/index.html', { waitUntil: 'load' });
+  // Since the cutover the classic app lives at /legacy.html (root is the redesign).
+  await page.goto(BASE + '/legacy.html', { waitUntil: 'load' });
   await page.waitForTimeout(2500);
   const legacyProbe = await page.evaluate(() => {
     try { return { workouts: state.workouts.length, templates: state.templates.length, key: localStorage.getItem('liftTracker') === null ? 'missing' : 'present' }; }

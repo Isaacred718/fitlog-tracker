@@ -476,6 +476,9 @@ input::placeholder { color: var(--text-3); opacity: 1; }
 .catalog-best { font-family: var(--font-display); font-weight: 700; font-size: 1.3rem; color: var(--lime); white-space: nowrap; }
 .catalog-best small { font-family: var(--font-body); font-size: 0.85rem; font-weight: 600; }
 .catalog-best.is-empty { font-family: var(--font-body); font-size: 0.9rem; font-weight: 500; color: var(--text-3); }
+.catalog-right { display: inline-flex; align-items: center; gap: 12px; }
+.video-btn { color: var(--lime); }
+a.ghost-btn { text-decoration: none; }
 .template-cards { display: grid; gap: 10px; }
 .template-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 84px; padding: 14px 18px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); color: var(--text-2); }
 .template-card > span { display: grid; gap: 2px; }

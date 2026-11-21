@@ -7,6 +7,7 @@ import {
   sortedHistory, summarizeSets, totalSetCount,
 } from '../../lib/workouts';
 import { exerciseOptions } from '../../data/exercises';
+import { VideoGuideLink } from '../../components/VideoGuide';
 import { useAppStore } from '../../store/useAppStore';
 import type { Workout } from '../../types/domain';
 
@@ -123,6 +124,7 @@ export function ActiveWorkout({ workout, dayKey, onFinish }: { workout: Workout;
                 </div>
                 <div className="ex-actions">
                   <button type="button" className="ghost-btn" onClick={() => addSet(exerciseIndex)}><Icon name="plus" size={20} /> Add set</button>
+                  <VideoGuideLink name={exercise.name} />
                   {exercise.sets.length > 1 && pointer && (
                     <button type="button" className="ghost-btn" aria-label={`Remove set ${pointer.setIndex + 1}`} onClick={() => removeSet(exerciseIndex, pointer.setIndex)}>Remove set</button>
                   )}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lift-tracker-v9';
+const CACHE_NAME = 'lift-tracker-v10';
 const ASSETS = ['./index.html', './manifest.json', './auth.html'];
 
 // Domains that should never be cached (auth, APIs, external resources)
@@ -93,7 +93,14 @@ self.addEventListener('fetch', (e) => {
           }
           return r;
         })
-        .catch(() => cached || caches.match('./index.html'));
+        .catch(() => {
+          // Subresource requests must never be answered with the app
+          // shell: an HTML body for a failed module script breaks the
+          // page ('Unexpected token <'). Only navigations fall back.
+          if (cached) return cached;
+          if (isNavigate) return caches.match('./index.html');
+          return new Response('', { status: 504, statusText: 'Offline' });
+        });
       return cached || refresh;
     })
   );

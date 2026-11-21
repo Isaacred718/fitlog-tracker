@@ -1,13 +1,17 @@
 # Dadbod Fitness (React app)
 
-This directory is the new implementation of Dadbod Fitness (formerly Lift Tracker). The existing root
-`index.html` remains the production GitHub Pages app until this migration is
-feature-complete. The built app is committed under app/dist and served by
-GitHub Pages at https://isaacred718.github.io/fitlog-tracker/app/dist/ — after
-changing anything in app/src, run npm run build and commit the fresh app/dist
-output with your change. On first launch the app migrates the legacy
+This directory holds the source of Dadbod Fitness (formerly Lift Tracker).
+It is the live app: as of 2026-11-21 the
+production build is committed both at app/dist (preview URL
+https://isaacred718.github.io/fitlog-tracker/app/dist/) and at the repo root,
+so https://isaacred718.github.io/fitlog-tracker/ — and the installed home
+screen app — serve the redesign. The classic single-file app is preserved
+at legacy.html (its sign-in helper auth.html returns there). After changing
+anything in app/src: run npm run build, copy app/dist/index.html to the repo
+root index.html and app/dist/assets/ over the root assets/, and commit the
+source change, both build copies, and the root files together. On first launch the app migrates the legacy
 liftTracker save (workouts, templates, in-progress session) into its own
-store; the legacy key is left untouched for the root app.
+store; the legacy key is left untouched for the classic app at legacy.html.
 
 ## Commands
 

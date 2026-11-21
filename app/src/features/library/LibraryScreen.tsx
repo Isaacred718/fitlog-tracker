@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
+import { VideoGuideIconButton } from '../../components/VideoGuide';
 import { exerciseOptions } from '../../data/exercises';
 import { WEEKDAY_NAMES, WEEK_ORDER } from '../../lib/dates';
 import { navigate } from '../../lib/router';
@@ -39,7 +40,10 @@ function Exercises() {
           return (
             <li key={item.id} className="catalog-item">
               <span><strong>{item.name}</strong><small>{item.muscle}</small></span>
-              {best && best.weight > 0 ? <span className="catalog-best">{formatWeight(best.weight)}<small> lb best</small></span> : <span className="catalog-best is-empty">Not logged yet</span>}
+              <span className="catalog-right">
+                {best && best.weight > 0 ? <span className="catalog-best">{formatWeight(best.weight)}<small> lb best</small></span> : <span className="catalog-best is-empty">Not logged yet</span>}
+                <VideoGuideIconButton name={item.name} />
+              </span>
             </li>
           );
         })}
