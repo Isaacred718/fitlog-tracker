@@ -4,17 +4,23 @@ import { Icon } from './Icon';
 /** Glass bottom sheet: Escape and the scrim close it, focus is trapped while open and restored after. */
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const panel = useRef<HTMLDivElement>(null);
+  // Callers pass inline onClose closures that change identity on every
+  // render; running the effect per render would refocus the panel and steal
+  // focus from the picker's search field on every keystroke.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     panel.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') closeRef.current();
       if (event.key !== 'Tab' || !panel.current) return;
       const focusable = panel.current.querySelectorAll<HTMLElement>('button, input, a[href], select');
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      if (!first || !last) { event.preventDefault(); panel.current.focus(); return; }
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', onKey);
     document.body.classList.add('sheet-open');
@@ -23,7 +29,7 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
       document.body.classList.remove('sheet-open');
       previous?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div className="sheet-layer">

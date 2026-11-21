@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lift-tracker-v8';
+const CACHE_NAME = 'lift-tracker-v9';
 const ASSETS = ['./index.html', './manifest.json', './auth.html'];
 
 // Domains that should never be cached (auth, APIs, external resources)

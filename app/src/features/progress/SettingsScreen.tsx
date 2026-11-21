@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Icon } from '../../components/Icon';
 import { WEEKDAY_NAMES, WEEK_ORDER } from '../../lib/dates';
 import { useAppStore } from '../../store/useAppStore';
@@ -8,15 +9,29 @@ export function SettingsScreen() {
   const setWeekday = useAppStore((state) => state.setWeekday);
   const workouts = useAppStore((state) => state.workouts);
   const showToast = useAppStore((state) => state.showToast);
+  const importBackup = useAppStore((state) => state.importBackup);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const exportData = () => {
-    const { workouts: w, templates: t, weekPlan: p, planOverrides } = useAppStore.getState();
-    const blob = new Blob([JSON.stringify({ app: 'Dadbod Fitness', exportedAt: new Date().toISOString(), workouts: w, templates: t, weekPlan: p, planOverrides }, null, 2)], { type: 'application/json' });
+    const { workouts: w, templates: t, weekPlan: p, planOverrides, planStart, activeWorkout } = useAppStore.getState();
+    const blob = new Blob([JSON.stringify({ app: 'Dadbod Fitness', exportedAt: new Date().toISOString(), workouts: w, templates: t, weekPlan: p, planOverrides, planStart, activeWorkout }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = Object.assign(document.createElement('a'), { href: url, download: `dadbod-fitness-${new Date().toISOString().slice(0, 10)}.json` });
     link.click();
     URL.revokeObjectURL(url);
     showToast('Backup downloaded');
+  };
+
+  const importData = async (file: File) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      showToast('That file is not valid JSON');
+      return;
+    }
+    if (!window.confirm('Restore this backup? It replaces the workouts, templates and plan currently on this device.')) return;
+    showToast(importBackup(parsed) ? 'Backup restored' : 'That file is not a Dadbod Fitness backup');
   };
 
   return (
@@ -49,9 +64,12 @@ export function SettingsScreen() {
         <h2 id="data-title">Your data</h2>
         <p className="panel-sub">{workouts.length} sessions and {templates.length} templates, stored on this device.</p>
         <button type="button" className="glass-btn wide" onClick={exportData}><Icon name="download" size={22} /> Download backup (JSON)</button>
+        <button type="button" className="glass-btn wide" onClick={() => fileInput.current?.click()}><Icon name="upload" size={22} /> Restore from backup</button>
+        <input ref={fileInput} type="file" accept="application/json,.json" className="visually-hidden" aria-label="Choose a backup file"
+          onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importData(file); }} />
       </section>
 
-      <p className="quiet-note center">Dadbod Fitness · React preview build</p>
+      <p className="quiet-note center">Dadbod Fitness · your data stays on this device</p>
     </div>
   );
 }

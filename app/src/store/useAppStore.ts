@@ -3,7 +3,8 @@ import { persist } from 'zustand/middleware';
 import { createId, nextIncomplete, prefillExercise, type SetPointer } from '../lib/workouts';
 import { defaultTemplates } from '../data/templates';
 import { defaultWeekPlan } from '../lib/plan';
-import { fromKey, todayKey, workoutDayKey } from '../lib/dates';
+import { convertLegacyState, migrateLegacyStorage } from '../lib/legacy';
+import { fromKey, isDayKey, todayKey, workoutDayKey } from '../lib/dates';
 import type { AppState, Template, Workout, WorkoutExercise, WorkoutSet } from '../types/domain';
 
 type ExerciseRef = { id: string; name: string; muscle: string };
@@ -15,6 +16,9 @@ interface UiState {
   /** The set the bottom dock is editing. Not persisted. */
   focus: SetPointer | null;
   toast: Toast | null;
+  /** Toasts waiting behind the visible one, so a second message never
+   *  silently discards an earlier toast's Undo. */
+  toastQueue: Toast[];
   /** Id of the session finished most recently, so the day panel can celebrate it inline. */
   lastFinishedId: string | null;
 }
@@ -45,6 +49,9 @@ interface AppActions {
   updateTemplateExercise: (templateId: string, exerciseIndex: number, field: 'sets' | 'reps' | 'weight' | 'rest', value: number) => void;
   showToast: (message: string, undo?: () => void) => void;
   dismissToast: () => void;
+  /** Replace all data fields from a Settings backup file. Returns false and
+   *  changes nothing when the payload is not a usable backup. */
+  importBackup: (data: unknown) => boolean;
 }
 
 export type DadbodStore = AppState & UiState & AppActions;
@@ -56,6 +63,10 @@ const freshSet = (reps = 10, weight = 0, rest = 90): WorkoutSet => ({
 const clamp = (value: number) => Math.max(0, Math.round((Number.isFinite(value) ? value : 0) * 10) / 10);
 let toastId = 0;
 
+// Carry existing users' data over from the legacy app before the store
+// hydrates from its own key; a no-op once the redesign has saved anything.
+migrateLegacyStorage(localStorage);
+
 export const useAppStore = create<DadbodStore>()(
   persist(
     (set, get) => {
@@ -65,13 +76,9 @@ export const useAppStore = create<DadbodStore>()(
         const workout = structuredClone(state.activeWorkout);
         return change(workout) === false ? state : { activeWorkout: workout };
       });
-      /** Destructive change with an Undo toast that restores the previous snapshot. */
-      const withUndo = (message: string, keys: (keyof AppState)[], change: () => void) => {
-        const state = get();
-        const snapshot = Object.fromEntries(keys.map((key) => [key, state[key]])) as Partial<AppState>;
-        change();
-        get().showToast(message, () => set(snapshot));
-      };
+      // Undo is surgical, never a whole-state snapshot: each destructive
+      // action captures exactly what it removed and its Undo re-applies
+      // only that, so two queued Undos cannot clobber each other's work.
 
       return {
         workouts: [],
@@ -84,6 +91,7 @@ export const useAppStore = create<DadbodStore>()(
         restDuration: 0,
         focus: null,
         toast: null,
+        toastQueue: [],
         lastFinishedId: null,
 
         startWorkout: (templateId, dayKey = todayKey()) => {
@@ -104,7 +112,15 @@ export const useAppStore = create<DadbodStore>()(
             focus: null, restEndsAt: null, lastFinishedId: null,
           });
         },
-        discardWorkout: () => withUndo('Workout discarded', ['activeWorkout'], () => set({ activeWorkout: null, restEndsAt: null, focus: null })),
+        discardWorkout: () => {
+          const { activeWorkout, restEndsAt, restDuration, focus } = get();
+          if (!activeWorkout) return;
+          set({ activeWorkout: null, restEndsAt: null, focus: null });
+          get().showToast('Workout discarded', () => {
+            if (get().activeWorkout) return; // a newer session owns the slot now
+            set({ activeWorkout, restEndsAt, restDuration, focus });
+          });
+        },
         finishWorkout: () => set((state) => {
           const active = state.activeWorkout;
           if (!active || !active.exercises.some((exercise) => exercise.sets.some((item) => item.completed))) return state;
@@ -116,7 +132,9 @@ export const useAppStore = create<DadbodStore>()(
               .map((exercise) => ({ ...exercise, sets: exercise.sets.filter((item) => item.completed) }))
               .filter((exercise) => exercise.sets.length > 0),
             endTime: now,
-            duration: now - active.startTime,
+            // Cap at 12h like the legacy app: a session left open overnight
+            // is a forgotten timer, not a 26-hour workout.
+            duration: Math.min(now - active.startTime, 12 * 3600 * 1000),
           };
           return { workouts: [...state.workouts, finished], activeWorkout: null, restEndsAt: null, focus: null, lastFinishedId: finished.id };
         }),
@@ -134,10 +152,19 @@ export const useAppStore = create<DadbodStore>()(
           if (workout) set({ focus: { exerciseIndex: workout.exercises.length - 1, setIndex: 0 } });
         },
         removeExercise: (exerciseIndex) => {
-          const name = get().activeWorkout?.exercises[exerciseIndex]?.name ?? 'Exercise';
-          withUndo(`${name} removed`, ['activeWorkout'], () => {
-            editWorkout((workout) => { workout.exercises.splice(exerciseIndex, 1); });
-            set({ focus: null });
+          const workout = get().activeWorkout;
+          const exercise = workout?.exercises[exerciseIndex];
+          if (!workout || !exercise) return;
+          const removed = structuredClone(exercise);
+          const workoutId = workout.id;
+          editWorkout((draft) => { draft.exercises.splice(exerciseIndex, 1); });
+          set({ focus: null });
+          get().showToast(`${exercise.name} removed`, () => {
+            if (get().activeWorkout?.id !== workoutId) return;
+            editWorkout((draft) => {
+              if (draft.exercises.some((item) => item.exerciseId === removed.exerciseId)) return false;
+              draft.exercises.splice(Math.min(exerciseIndex, draft.exercises.length), 0, structuredClone(removed));
+            });
           });
         },
         addSet: (exerciseIndex) => {
@@ -150,14 +177,24 @@ export const useAppStore = create<DadbodStore>()(
           const sets = get().activeWorkout?.exercises[exerciseIndex]?.sets;
           if (sets) set({ focus: { exerciseIndex, setIndex: sets.length - 1 } });
         },
-        removeSet: (exerciseIndex, setIndex) => withUndo(`Set ${setIndex + 1} removed`, ['activeWorkout'], () => {
-          editWorkout((workout) => {
-            const sets = workout.exercises[exerciseIndex]?.sets;
-            if (!sets || sets.length <= 1) return false;
-            sets.splice(setIndex, 1);
-          });
+        removeSet: (exerciseIndex, setIndex) => {
+          const workout = get().activeWorkout;
+          const sets = workout?.exercises[exerciseIndex]?.sets;
+          const target = sets?.[setIndex];
+          if (!workout || !sets || !target || sets.length <= 1) return;
+          const removed = structuredClone(target);
+          const workoutId = workout.id;
+          editWorkout((draft) => { draft.exercises[exerciseIndex].sets.splice(setIndex, 1); });
           set({ focus: null });
-        }),
+          get().showToast(`Set ${setIndex + 1} removed`, () => {
+            if (get().activeWorkout?.id !== workoutId) return;
+            editWorkout((draft) => {
+              const list = draft.exercises[exerciseIndex]?.sets;
+              if (!list) return false;
+              list.splice(Math.min(setIndex, list.length), 0, structuredClone(removed));
+            });
+          });
+        },
         updateSet: (exerciseIndex, setIndex, field, value) => editWorkout((workout) => {
           const target = workout.exercises[exerciseIndex]?.sets[setIndex];
           if (!target) return false;
@@ -165,12 +202,15 @@ export const useAppStore = create<DadbodStore>()(
         }),
         completeSet: (exerciseIndex, setIndex) => {
           let rest = 0;
+          let changed = false;
           editWorkout((workout) => {
             const target = workout.exercises[exerciseIndex]?.sets[setIndex];
-            if (!target) return false;
+            if (!target || target.completed) return false;
             target.completed = true;
             rest = target.rest;
+            changed = true;
           });
+          if (!changed) return;
           const workout = get().activeWorkout;
           if (!workout) return;
           const next = nextIncomplete(workout, { exerciseIndex, setIndex });
@@ -182,7 +222,7 @@ export const useAppStore = create<DadbodStore>()(
             if (!target) return false;
             target.completed = false;
           });
-          set({ focus: { exerciseIndex, setIndex } });
+          set({ focus: { exerciseIndex, setIndex }, restEndsAt: null });
         },
         repeatLastSet: (exerciseIndex, setIndex) => editWorkout((workout) => {
           const sets = workout.exercises[exerciseIndex]?.sets;
@@ -204,7 +244,17 @@ export const useAppStore = create<DadbodStore>()(
             : state.weekPlan[fromKey ? fromKeyDay(fromKey) : 0];
           return { planOverrides: { ...state.planOverrides, [fromKey]: null, [toKey]: id ?? null } };
         }),
-        skipDay: (dayKey) => withUndo('Session skipped', ['planOverrides'], () => set((state) => ({ planOverrides: { ...state.planOverrides, [dayKey]: null } }))),
+        skipDay: (dayKey) => {
+          const overrides = get().planOverrides;
+          const had = Object.prototype.hasOwnProperty.call(overrides, dayKey);
+          const previous = overrides[dayKey];
+          set((state) => ({ planOverrides: { ...state.planOverrides, [dayKey]: null } }));
+          get().showToast('Session skipped', () => set((state) => {
+            const next = { ...state.planOverrides };
+            if (had) next[dayKey] = previous; else delete next[dayKey];
+            return { planOverrides: next };
+          }));
+        },
 
         createTemplate: () => {
           const id = createId();
@@ -213,8 +263,32 @@ export const useAppStore = create<DadbodStore>()(
         },
         renameTemplate: (templateId, name) => set((state) => ({ templates: state.templates.map((template) => template.id === templateId ? { ...template, name } : template) })),
         deleteTemplate: (templateId) => {
-          const name = get().templates.find((template) => template.id === templateId)?.name ?? 'Template';
-          withUndo(`${name} deleted`, ['templates'], () => set((state) => ({ templates: state.templates.filter((template) => template.id !== templateId) })));
+          const state = get();
+          const index = state.templates.findIndex((template) => template.id === templateId);
+          if (index < 0) return;
+          const removed = structuredClone(state.templates[index]);
+          const planDays = Object.entries(state.weekPlan).filter(([, id]) => id === templateId).map(([day]) => day);
+          const overrideDays = Object.entries(state.planOverrides).filter(([, id]) => id === templateId).map(([day]) => day);
+          set((current) => ({
+            templates: current.templates.filter((template) => template.id !== templateId),
+            weekPlan: Object.fromEntries(Object.entries(current.weekPlan).map(([day, id]) => [day, id === templateId ? null : id])) as AppState['weekPlan'],
+            planOverrides: Object.fromEntries(Object.entries(current.planOverrides).filter(([, id]) => id !== templateId)),
+          }));
+          get().showToast(`${removed.name} deleted`, () => set((current) => {
+            if (current.templates.some((template) => template.id === templateId)) return current;
+            const templates = [...current.templates];
+            templates.splice(Math.min(index, templates.length), 0, removed);
+            const weekPlan = { ...current.weekPlan };
+            for (const day of planDays) {
+              const key = Number(day) as keyof AppState['weekPlan'];
+              if (weekPlan[key] === null) weekPlan[key] = templateId;
+            }
+            const planOverrides = { ...current.planOverrides };
+            for (const day of overrideDays) {
+              if (!Object.prototype.hasOwnProperty.call(planOverrides, day)) planOverrides[day] = templateId;
+            }
+            return { templates, weekPlan, planOverrides };
+          }));
         },
         addTemplateExercise: (templateId, exercise) => set((state) => ({
           templates: state.templates.map((template) => {
@@ -223,9 +297,20 @@ export const useAppStore = create<DadbodStore>()(
           }),
         })),
         removeTemplateExercise: (templateId, exerciseIndex) => {
-          const name = get().templates.find((template) => template.id === templateId)?.exercises[exerciseIndex]?.name ?? 'Exercise';
-          withUndo(`${name} removed`, ['templates'], () => set((state) => ({
-            templates: state.templates.map((template) => template.id === templateId ? { ...template, exercises: template.exercises.filter((_, index) => index !== exerciseIndex) } : template),
+          const template = get().templates.find((item) => item.id === templateId);
+          const exercise = template?.exercises[exerciseIndex];
+          if (!template || !exercise) return;
+          const removed = structuredClone(exercise);
+          set((state) => ({
+            templates: state.templates.map((item) => item.id === templateId ? { ...item, exercises: item.exercises.filter((_, index) => index !== exerciseIndex) } : item),
+          }));
+          get().showToast(`${exercise.name} removed`, () => set((state) => ({
+            templates: state.templates.map((item) => {
+              if (item.id !== templateId || item.exercises.some((entry) => entry.exerciseId === removed.exerciseId)) return item;
+              const exercises = [...item.exercises];
+              exercises.splice(Math.min(exerciseIndex, exercises.length), 0, structuredClone(removed));
+              return { ...item, exercises };
+            }),
           })));
         },
         updateTemplateExercise: (templateId, exerciseIndex, field, value) => set((state) => ({
@@ -251,13 +336,54 @@ export const useAppStore = create<DadbodStore>()(
           }),
         })),
 
-        showToast: (message, undo) => set({ toast: { id: ++toastId, message, undo } }),
-        dismissToast: () => set({ toast: null }),
+        showToast: (message, undo) => set((state) => {
+          const toast = { id: ++toastId, message, undo };
+          return state.toast ? { toastQueue: [...state.toastQueue, toast] } : { toast };
+        }),
+        dismissToast: () => set((state) => ({ toast: state.toastQueue[0] ?? null, toastQueue: state.toastQueue.slice(1) })),
+        importBackup: (data) => {
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+          const source = data as Record<string, unknown>;
+          if (!Array.isArray(source.workouts) || !Array.isArray(source.templates)) return false;
+          // Reuse the legacy converter as the normalizer: it validates every
+          // record and repairs field-level damage instead of trusting the file.
+          const converted = convertLegacyState(source);
+          if (!converted) return false;
+          const weekPlan: AppState['weekPlan'] = { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null };
+          if (source.weekPlan && typeof source.weekPlan === 'object' && !Array.isArray(source.weekPlan)) {
+            for (const [day, id] of Object.entries(source.weekPlan as Record<string, unknown>)) {
+              const weekday = Number(day);
+              if (Number.isInteger(weekday) && weekday >= 0 && weekday <= 6) {
+                weekPlan[weekday as keyof AppState['weekPlan']] = typeof id === 'string' ? id : null;
+              }
+            }
+          }
+          const planOverrides: Record<string, string | null> = {};
+          if (source.planOverrides && typeof source.planOverrides === 'object' && !Array.isArray(source.planOverrides)) {
+            for (const [day, id] of Object.entries(source.planOverrides as Record<string, unknown>)) {
+              if (isDayKey(day)) planOverrides[day] = typeof id === 'string' ? id : null;
+            }
+          }
+          set({
+            workouts: converted.workouts,
+            templates: converted.templates,
+            activeWorkout: converted.activeWorkout,
+            weekPlan,
+            planOverrides,
+            planStart: typeof source.planStart === 'string' && isDayKey(source.planStart)
+              ? source.planStart
+              : converted.workouts.length ? converted.workouts.map((workout) => workoutDayKey(workout)).sort()[0] : todayKey(),
+            restEndsAt: null,
+            focus: null,
+          });
+          return true;
+        },
       };
     },
     {
-      // Same storage key and shape as before the redesign: existing workouts, templates and an
-      // in-progress session load untouched; the new plan fields fall back to defaults.
+      // The redesign persists under its own key; lib/legacy.ts migrates the
+      // legacy app's `liftTracker` save into it on first launch. The plan
+      // fields are new in the redesign and fall back to defaults.
       name: 'liftTracker-v3',
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<AppState>;

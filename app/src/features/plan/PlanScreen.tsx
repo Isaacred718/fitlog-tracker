@@ -113,6 +113,10 @@ export function PlanScreen({ day, sheet }: { day?: string; sheet?: 'add' }) {
   const streak = streakWeeks(workouts, today);
   const missed = active ? undefined : [...thisWeek].reverse().find((key, index) => key < today && weekStats[6 - index] === 'missed');
   const missedTemplate = missed ? plannedTemplate(missed, weekPlan, overrides, templates) : null;
+  // Moving a missed session onto a day that already has a logged workout
+  // would bury it (the day reads as done and the session never surfaces),
+  // so fall forward to tomorrow when today is already trained.
+  const moveTarget = byDay.get(today)?.length ? addDays(today, 1) : today;
 
   const planned = plannedTemplate(selected, weekPlan, overrides, templates);
   const finished = byDay.get(selected) ?? [];
@@ -144,7 +148,7 @@ export function PlanScreen({ day, sheet }: { day?: string; sheet?: 'add' }) {
         <aside className="missed-banner" aria-label="Missed session">
           <p><strong>Missed {longWeekday(missed)}</strong> · {missedTemplate.name}</p>
           <div className="chip-row">
-            <button type="button" className="chip chip-lg chip-accent" onClick={() => { moveSession(missed, today); select(today); }}>Move to today</button>
+            <button type="button" className="chip chip-lg chip-accent" onClick={() => { moveSession(missed, moveTarget); select(moveTarget); }}>{moveTarget === today ? 'Move to today' : 'Move to tomorrow'}</button>
             <button type="button" className="chip chip-lg" onClick={() => skipDay(missed)}>Skip</button>
           </div>
         </aside>

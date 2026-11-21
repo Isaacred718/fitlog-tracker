@@ -6,11 +6,15 @@ export type Route =
   | { tab: 'progress'; sub?: 'settings' }
   | { tab: 'library'; sub: 'exercises' | 'templates'; id?: string };
 
+const safeDecode = (segment: string): string => {
+  try { return decodeURIComponent(segment); } catch { return segment; }
+};
+
 export function parseRoute(hash: string): Route {
   const [tab, a, b] = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (tab === 'progress') return { tab, sub: a === 'settings' ? 'settings' : undefined };
   if (tab === 'library') {
-    if (a === 'templates') return { tab, sub: 'templates', id: b ? decodeURIComponent(b) : undefined };
+    if (a === 'templates') return { tab, sub: 'templates', id: b ? safeDecode(b) : undefined };
     return { tab, sub: 'exercises' };
   }
   if (isDayKey(a)) return { tab: 'plan', day: a, sheet: b === 'add' ? 'add' : undefined };

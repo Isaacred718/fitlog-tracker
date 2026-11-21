@@ -63,7 +63,7 @@ export function Stepper({ label, value, step, min = 0, max = 2000, unit, decimal
       <RepeatButton label={`Decrease ${label}`} icon="minus" onStep={() => set(valueRef.current - step)} />
       <label className="stepper-value">
         <span className="visually-hidden">{label}</span>
-        <input style={{ '--chars': `${Math.max(2, String(value).length) + 0.4}ch` } as CSSProperties} type="number" inputMode={decimal ? 'decimal' : 'numeric'} value={value} min={min} max={max} step={decimal ? 0.5 : 1}
+        <input style={{ '--chars': `${Math.max(2, String(value).length) + 0.4}ch` } as CSSProperties} type="number" inputMode={decimal ? 'decimal' : 'numeric'} value={value} min={min} max={max} step={step}
           onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => set(Number(event.target.value))} />
         {unit && <span className="stepper-unit" aria-hidden="true">{unit}</span>}

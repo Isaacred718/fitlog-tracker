@@ -18,6 +18,7 @@ const paths = {
   play: <path d="M8 5.5v13l10.5-6.5z" />,
   timer: <><circle cx="12" cy="13.5" r="7.5" /><path d="M12 9.5v4l2.5 2M9.5 2.5h5" /></>,
   download: <><path d="M12 4v11M7 10.5l5 5 5-5M4.5 20h15" /></>,
+  upload: <><path d="M12 15V4M7 8.5l5-5 5 5M4.5 20h15" /></>,
   trophy: <><path d="M8 4h8v5a4 4 0 0 1-8 0zM12 13v4M8.5 20.5h7M12 17c-1.7 0-3 1.2-3 3.5h6c0-2.3-1.3-3.5-3-3.5" /><path d="M8 6H4.5c0 3 1.5 4.5 3.7 4.8M16 6h3.5c0 3-1.5 4.5-3.7 4.8" /></>,
 } as const;
 

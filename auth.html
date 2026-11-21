@@ -68,13 +68,13 @@
       var intro = document.createElement("p");
       intro.textContent = "iPhone keeps the home-screen app's storage separate from Safari, so the sign-in cannot jump back on its own. Carry it over with this code:";
       var steps = document.createElement("ol");
-      steps.innerHTML = "<li>Tap <b>Copy code</b> below</li><li>Switch back to the <b>Lift Tracker</b> home-screen app</li><li>Tap <b>Paste sign-in code</b> in Settings and paste it in</li>";
+      steps.innerHTML = "<li>Tap <b>Copy code</b> below</li><li>Switch back to the <b>Dadbod Fitness</b> home-screen app</li><li>Tap <b>Paste sign-in code</b> in Settings and paste it in</li>";
       var ta = document.createElement("textarea");
       ta.id = "sign-code"; ta.readOnly = true; ta.value = code; ta.setAttribute("aria-label", "Sign-in code");
       var copyBtn = document.createElement("button"); copyBtn.textContent = "Copy code";
       copyBtn.addEventListener("click", function () {
         ta.focus(); ta.select(); ta.setSelectionRange(0, code.length);
-        function done() { copyBtn.textContent = "Copied ✓ Now switch to Lift Tracker"; }
+        function done() { copyBtn.textContent = "Copied ✓ Now switch to Dadbod"; }
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(code).then(done, function () {
             try { document.execCommand("copy"); } catch (e) {}
@@ -93,7 +93,7 @@
       card.appendChild(ta); card.appendChild(copyBtn); card.appendChild(exp); card.appendChild(safariBtn);
       return;
     }
-    msg.innerHTML = "No sign-in data. <a href=\"index.html\">Back to Lift Tracker</a>";
+    msg.innerHTML = "No sign-in data. <a href=\"index.html\">Back to Dadbod Fitness</a>";
     setTimeout(goHome, 1200);
   } catch (e) {
     msg.textContent = "Sign-in error. Returning…";

@@ -2,7 +2,12 @@
 
 This directory is the new implementation of Dadbod Fitness (formerly Lift Tracker). The existing root
 `index.html` remains the production GitHub Pages app until this migration is
-feature-complete.
+feature-complete. The built app is committed under app/dist and served by
+GitHub Pages at https://isaacred718.github.io/fitlog-tracker/app/dist/ — after
+changing anything in app/src, run npm run build and commit the fresh app/dist
+output with your change. On first launch the app migrates the legacy
+liftTracker save (workouts, templates, in-progress session) into its own
+store; the legacy key is left untouched for the root app.
 
 ## Commands
 

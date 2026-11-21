@@ -1,0 +1,26 @@
+# Dadbod Fitness UI QA findings
+
+| Severity | File:line | Defect | Repro or reasoning |
+|---|---|---|---|
+| S1 | `app/src/store/useAppStore.ts:69-74` | Replacing a toast silently discards the previous destructive action's undo callback. | Delete an exercise or template, then perform another destructive action before the six-second toast expires. The second `showToast` replaces the first callback, so the first change can no longer be undone. |
+| S1 | `app/src/lib/router.ts:13` | A malformed percent-encoded template id can crash route rendering. | Open a URL such as `#/library/templates/%ZZ`; `decodeURIComponent(b)` throws instead of falling back to the not-found editor. |
+| S2 | `app/src/store/useAppStore.ts:107` | Undoing a discarded workout restores only `activeWorkout`, not its focus or rest timer. | Start a workout, focus a set, complete it to start rest, discard, then tap Undo. The workout returns with `focus: null` and `restEndsAt: null`, so the in-progress logging state and timer are lost. |
+| S2 | `app/src/components/Sheet.tsx:7-26` | The sheet refocuses its panel whenever `onClose` identity changes, which steals focus from the picker search field. | Type into `ExercisePicker`: its inline `onClose` changes on each render, causing the effect to clean up and rerun; the panel is focused after every keystroke, interrupting continuous typing. |
+| S2 | `app/src/components/Stepper.tsx:57-68` | The number input uses a hard-coded keyboard step of `0.5`/`1` instead of the component's `step` prop. | The weight dock passes `step={5}`, but using the input spinner or ArrowUp changes by `0.5`; template rest passes `15`, but keyboard changes by `1`. Pointer buttons and direct input behave differently. |
+| S2 | `app/src/store/useAppStore.ts:166-177` | Completing a set can start a new rest timer even when the target set is already complete. | `completeSet` has no completed-state guard. Any caller that invokes it twice for the same set marks it complete again and resets rest; the action is not idempotent and can produce a false rest interval. |
+| S2 | `app/src/store/useAppStore.ts:179-185` | Uncompleting a set does not clear an active rest timer. | Complete set A, then mark set A not done while its rest timer is active. The timer remains visible and later calls `skipRest`, even though the set is back in an unfinished state. |
+| S2 | `app/src/store/useAppStore.ts:215-218` | Deleting a template leaves weekly-plan entries pointing at the deleted id. | Assign a template to a weekday, delete it, then open Plan or Settings. The select still stores the orphan id and the planned day resolves as unplanned/rest; deleting the referenced template should clear or migrate those assignments. |
+| S2 | `app/src/features/progress/SettingsScreen.tsx:12-20` | The backup export omits persisted in-progress workout state and `planStart`, so it cannot restore the full app state. | Export while a workout is active or after the plan start has been established. The JSON contains workouts/templates/weekPlan/overrides only; there is also no import control or validation path in this screen. |
+| S2 | `app/src/store/useAppStore.ts:201-205` | Moving a missed session onto a day with an existing plan or workout overwrites the effective plan without resolving the collision. | Use “Move to today” when today already has a planned session or logged workout. `planOverrides[toKey]` is replaced with the missed template id, while the existing workout remains, producing conflicting schedule/history semantics. |
+| S2 | `app/src/features/plan/PlanScreen.tsx:120,185-188` | A day with finished history cannot start its planned session through the primary planned-session branch. | On a day with a finished workout and a plan, `finished.length > 0` takes precedence over `planned`; the only follow-up action calls `startWorkout(planned?.id ?? null, selected)`, which is correct for starting another session but bypasses the planned preview and can silently start an empty workout if the plan reference is stale. |
+| S3 | `app/src/components/Sheet.tsx:12-18` | Focus trapping is incomplete when a sheet has no focusable descendants. | With an empty or temporarily filtered sheet, Tab is not prevented because `first` and `last` are undefined, allowing focus to leave the modal despite `aria-modal="true"`. |
+
+## Verified correct
+
+- `RestTimerBar` derives remaining time from the absolute `restEndsAt` timestamp, so interval drift does not accumulate; stale timers are cleared on the next render and timers older than three seconds intentionally do not vibrate.
+- The rest timer's `+15s` action extends both its end timestamp and displayed duration, and Skip clears the timer.
+- `WeekStrip` exposes day, date, today state, session name, and status in an accessible label; status is represented by shape as well as color.
+- `finishWorkout` refuses to finish a session with no completed set and drops untouched sets/exercises from saved history.
+- Exercise picker and template editor both prevent duplicate exercise additions through their exclusion list and store guard.
+- Template editor prevents starting an empty template, and its set count is bounded to 1 through 10 in the store and UI.
+- History is rendered from `sortedHistory`, and the weekly volume chart compares matching week-start keys across eight weeks.
