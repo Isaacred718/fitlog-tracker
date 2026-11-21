@@ -1,43 +1,31 @@
-import { completedSetCount, workoutVolume } from './lib/workouts';
-import { WorkoutScreen } from './features/workouts/WorkoutScreen';
-import { ExerciseCatalog } from './features/exercises/ExerciseCatalog';
-import { TemplateEditor } from './features/templates/TemplateEditor';
-import { useState } from 'react';
-import { useAppStore } from './store/useAppStore';
+import { useEffect } from 'react';
+import { GlassNav } from './components/GlassNav';
+import { Toast } from './components/Toast';
+import { LibraryScreen } from './features/library/LibraryScreen';
+import { PlanScreen } from './features/plan/PlanScreen';
+import { ProgressScreen } from './features/progress/ProgressScreen';
+import { SettingsScreen } from './features/progress/SettingsScreen';
+import { useRoute } from './lib/router';
 
 export function App() {
-  const [view, setView] = useState<'dashboard' | 'templates' | 'exercises'>('dashboard');
-  const activeWorkout = useAppStore((state) => state.activeWorkout);
-  const workouts = useAppStore((state) => state.workouts);
-  const startEmptyWorkout = useAppStore((state) => state.startEmptyWorkout);
-  const templates = useAppStore((state) => state.templates);
-  const startTemplateWorkout = useAppStore((state) => state.startTemplateWorkout);
+  const route = useRoute();
+  // Plan day changes keep their scroll; switching screens starts at the top.
+  const screen = route.tab === 'library' ? `library/${route.sub}/${route.id ?? ''}` : route.tab === 'progress' ? `progress/${route.sub ?? ''}` : 'plan';
 
-  const totalVolume = workouts.reduce((sum, workout) => sum + workoutVolume(workout), 0);
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [screen]);
 
   return (
-    <main className="app-shell">
-      <nav className="top-nav"><button className={view === 'dashboard' ? 'selected' : 'secondary'} onClick={() => setView('dashboard')}>Home</button><button className={view === 'templates' ? 'selected' : 'secondary'} onClick={() => setView('templates')}>Templates</button><button className={view === 'exercises' ? 'selected' : 'secondary'} onClick={() => setView('exercises')}>Exercises</button></nav>
-      {view === 'templates' ? <TemplateEditor /> : view === 'exercises' ? <ExerciseCatalog /> : <>
-      <header>
-        <p className="eyebrow">Lift Tracker · React migration</p>
-        <h1>Dashboard</h1>
-      </header>
-      <section className="stats" aria-label="Workout statistics">
-        <div><strong>{workouts.length}</strong><span>Workouts</span></div>
-        <div><strong>{totalVolume.toLocaleString()}</strong><span>Volume (lbs)</span></div>
-        <div><strong>{activeWorkout ? completedSetCount(activeWorkout) : 0}</strong><span>Sets today</span></div>
-      </section>
-      {activeWorkout ? <WorkoutScreen /> : (
-        <section className="card">
-          <h2>Ready when you are.</h2>
-          <p>Start an empty workout, or choose a template once that feature is migrated.</p>
-          <button type="button" onClick={startEmptyWorkout}>Start workout</button>
-          <div className="template-list">{templates.map((template) => <button className="secondary" type="button" key={template.id} onClick={() => startTemplateWorkout(template)}>Start {template.name}</button>)}</div>
-        </section>
-      )}
-      <p className="migration-note">The existing app remains the production app. This is the typed migration foundation.</p>
-      </>}
-    </main>
+    <>
+      <div className="ambient" aria-hidden="true" />
+      <main className="app-shell">
+        {route.tab === 'plan' && <PlanScreen day={route.day} sheet={route.sheet} />}
+        {route.tab === 'progress' && (route.sub === 'settings' ? <SettingsScreen /> : <ProgressScreen />)}
+        {route.tab === 'library' && <LibraryScreen sub={route.sub} id={route.id} />}
+      </main>
+      <Toast />
+      <GlassNav current={route.tab} />
+    </>
   );
 }

@@ -49,8 +49,21 @@ export interface Template {
   exercises: WorkoutExercise[];
 }
 
+/** Weekday (0 = Sunday … 6 = Saturday) → template id, or null for a rest day. */
+export type WeekPlan = Record<number, string | null>;
+
 export interface AppState {
   workouts: Workout[];
   activeWorkout: Workout | null;
   templates: Template[];
+  /** Recurring weekly schedule. Added in the Dadbod Fitness redesign; defaults fill in for older saves. */
+  weekPlan: WeekPlan;
+  /** One-off changes to the plan for a specific day (YYYY-MM-DD): moved or skipped sessions. */
+  planOverrides: Record<string, string | null>;
+  /** First day the plan counts from (YYYY-MM-DD); planned days before it are never "missed". */
+  planStart: string;
+  /** Epoch ms when the inline rest timer ends, or null when no rest is running. */
+  restEndsAt: number | null;
+  /** Total length of the current rest in seconds, for the progress bar. */
+  restDuration: number;
 }
