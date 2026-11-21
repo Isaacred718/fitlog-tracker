@@ -8,7 +8,8 @@ delete cleanEnv.HTTP_PROXY; delete cleanEnv.HTTPS_PROXY; delete cleanEnv.http_pr
 let failures = 0;
 const check = (engine, label, ok, extra = '') => { console.log((ok ? 'PASS' : 'FAIL') + ' [' + engine + '] ' + label + (extra ? ' :: ' + String(extra).slice(0, 140) : '')); if (!ok) failures++; };
 
-for (const [name, engine] of [['chromium', chromium], ['webkit', webkit]]) {
+const engines = process.env.ONLY_ENGINE ? [[process.env.ONLY_ENGINE, process.env.ONLY_ENGINE === 'webkit' ? webkit : chromium]] : [['chromium', chromium], ['webkit', webkit]];
+for (const [name, engine] of engines) {
   const browser = await engine.launch({ env: cleanEnv, proxy });
   const ctx = await browser.newContext({ timezoneId: 'America/New_York', viewport: { width: 390, height: 844 } });
   await ctx.addInitScript((json) => { localStorage.setItem('liftTracker', json); }, legacyJSON);
